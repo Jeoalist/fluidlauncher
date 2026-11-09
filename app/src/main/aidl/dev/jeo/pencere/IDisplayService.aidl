@@ -12,4 +12,6 @@ interface IDisplayService {
     void launch(int displayId, String component) = 3;
     oneway void injectMotion(int displayId, in MotionEvent event) = 4;
     void resizeDisplay(int displayId, int width, int height, int dpi) = 6;
+    List<String> openPackages() = 7;
+    void closePackage(String packageName) = 8;
 }

@@ -7,6 +7,7 @@ import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
 import android.os.RemoteException
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.Surface
@@ -30,6 +31,7 @@ class AppWindow(
     private val onFocus: (AppWindow) -> Unit,
     private val onClose: (AppWindow) -> Unit,
     private val onFilledChanged: () -> Unit,
+    private val onOpenFullscreen: (AppWindow) -> Unit,
 ) : FrameLayout(context) {
 
     /** Size of the virtual display the app believes is its screen. */
@@ -45,7 +47,8 @@ class AppWindow(
     private val texture = TextureView(context)
     private val maxDisplayHeight = spec.height * 3 / 2
     private var surface: Surface? = null
-    private var displayId = NO_DISPLAY
+    var displayId = NO_DISPLAY
+        private set
     private var windowWidth = initialWidth
     private var displayWidth = spec.width
     private var restore: Restore? = null
@@ -187,6 +190,10 @@ class AppWindow(
         var startY = 0f
         var dragging = false
         var lastTapTime = 0L
+        val hold = Runnable {
+            handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            onOpenFullscreen(this)
+        }
         handle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -196,21 +203,29 @@ class AppWindow(
                     startX = x
                     startY = y
                     dragging = false
+                    handle.postDelayed(hold, FULLSCREEN_HOLD_MS)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
-                    if (hypot(dx, dy) > touchSlop) dragging = true
-                    if (dragging) moveTo(startX + dx, startY + dy)
+                    if (hypot(dx, dy) > touchSlop) {
+                        dragging = true
+                        handle.removeCallbacks(hold)
+                    }
+                    if (dragging && !isFilled) moveTo(startX + dx, startY + dy)
                 }
-                MotionEvent.ACTION_UP -> if (!dragging) {
-                    if (event.eventTime - lastTapTime <= doubleTapTimeout) {
-                        lastTapTime = 0L
-                        toggleFilled()
-                    } else {
-                        lastTapTime = event.eventTime
+                MotionEvent.ACTION_UP -> {
+                    handle.removeCallbacks(hold)
+                    if (!dragging) {
+                        if (event.eventTime - lastTapTime <= doubleTapTimeout) {
+                            lastTapTime = 0L
+                            toggleFilled()
+                        } else {
+                            lastTapTime = event.eventTime
+                        }
                     }
                 }
+                MotionEvent.ACTION_CANCEL -> handle.removeCallbacks(hold)
             }
             true
         }
@@ -237,14 +252,10 @@ class AppWindow(
         var startWidth = 0
         var startHeight = 0
         setOnTouchListener { _, event ->
+            if (isFilled) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     onFocus(this@AppWindow)
-                    if (restore != null) {
-                        restore = null
-                        displayWidth = spec.width
-                        onFilledChanged()
-                    }
                     downX = event.rawX
                     downY = event.rawY
                     startX = this@AppWindow.x
@@ -311,6 +322,7 @@ class AppWindow(
 
     private companion object {
         const val NO_DISPLAY = -1
+        const val FULLSCREEN_HOLD_MS = 1500L
         const val TITLE_HEIGHT_DP = 24
         const val BUTTON_WIDTH_DP = 44
         const val MIN_WIDTH_DP = 140

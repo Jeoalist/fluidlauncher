@@ -7,8 +7,22 @@ import android.graphics.Rect
 import android.net.Uri
 import android.os.Process
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.widget.PopupMenu
 import android.widget.Toast
+
+/** Keeps the system navigation hidden; the status bar is only hidden for a full-screen window. */
+fun Activity.applySystemBars(hideStatusBar: Boolean) {
+    val controller = window.insetsController ?: return
+    controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    controller.hide(WindowInsets.Type.navigationBars())
+    if (hideStatusBar) {
+        controller.hide(WindowInsets.Type.statusBars())
+    } else {
+        controller.show(WindowInsets.Type.statusBars())
+    }
+}
 
 fun Activity.launchApp(app: AppEntry, asWindow: Boolean, source: View) {
     val bounds = Rect().also(source::getGlobalVisibleRect)

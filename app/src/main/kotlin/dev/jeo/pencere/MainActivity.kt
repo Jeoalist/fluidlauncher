@@ -41,6 +41,7 @@ class MainActivity : Activity() {
     private var systemBars: Insets = Insets.NONE
     private var margin = 0
     private var draggingButton = false
+    private val shizukuStateListener: () -> Unit = { main.post(::renderShizukuState) }
     private var launcherOnTop = false
 
     private enum class PanState { IDLE, ARMED, PANNING }
@@ -87,13 +88,13 @@ class MainActivity : Activity() {
                 WindowInsets.Type.systemBars() or WindowInsets.Type.mandatorySystemGestures(),
             ).bottom
             excludeBackGesture()
-            windows.keepInArea(systemBars.top.toFloat())
+            keepWindowsInArea()
             insets
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             placeAppsButton()
             excludeBackGesture()
-            windows.keepInArea(systemBars.top.toFloat())
+            keepWindowsInArea()
         }
         modePill.setOnClickListener {
             prefs.windowed = !prefs.windowed
@@ -111,7 +112,7 @@ class MainActivity : Activity() {
         renderDesktopLabel(1)
         renderMode()
         shizukuPill.setOnClickListener { onShizukuPillClicked() }
-        ShizukuBridge.onStateChanged = { main.post(::renderShizukuState) }
+        ShizukuBridge.onStateChanged = shizukuStateListener
         ShizukuBridge.start(this)
         renderShizukuState()
         launcherApps.registerCallback(packageCallback, main)
@@ -128,9 +129,9 @@ class MainActivity : Activity() {
         updateFocusable()
     }
 
-    /** Only the display's focused window can hide the status bar, so a fullscreen window needs it. */
+    /** Only the display's focused window can hide the system bars, so it must stay focusable. */
     private fun updateFocusable() {
-        if (launcherOnTop || windows.isFullscreenVisible) {
+        if (launcherOnTop || ShizukuBridge.state == ShizukuBridge.State.READY) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
@@ -138,19 +139,28 @@ class MainActivity : Activity() {
     }
 
     private fun applyFullscreen(visible: Boolean) {
-        updateFocusable()
-        val controller = window.insetsController ?: return
-        controller.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (visible) {
-            controller.hide(WindowInsets.Type.statusBars())
-        } else {
-            controller.show(WindowInsets.Type.statusBars())
-        }
+        applySystemBars(visible)
+        keepWindowsInArea()
+    }
+
+    private fun keepWindowsInArea() {
+        windows.keepInArea(systemBars.top.toFloat())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applySystemBars(windows.isFullscreenVisible)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applySystemBars(windows.isFullscreenVisible)
     }
 
     override fun onDestroy() {
-        ShizukuBridge.onStateChanged = {}
-        AppWindows.current = null
+        // A replacement instance may already have registered itself by the time this one dies.
+        if (ShizukuBridge.onStateChanged === shizukuStateListener) ShizukuBridge.onStateChanged = {}
+        if (AppWindows.current === windows) AppWindows.current = null
         windows.closeAll()
         launcherApps.unregisterCallback(packageCallback)
         background.shutdown()
@@ -282,6 +292,7 @@ class MainActivity : Activity() {
 
     private fun renderShizukuState() {
         val state = ShizukuBridge.state
+        updateFocusable()
         if (state != ShizukuBridge.State.READY) windows.closeAll()
         val message = when (state) {
             ShizukuBridge.State.NOT_RUNNING -> R.string.shizuku_not_running

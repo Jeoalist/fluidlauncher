@@ -3,6 +3,7 @@ package dev.jeo.pencere
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.hardware.display.DisplayManager
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
@@ -49,7 +50,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val top = bounds.height() / 8f + cascade * step
         // Keeps the resize corner on screen, which matters in landscape.
         val maxContentHeight = (bounds.height() - top).toInt() - bounds.height() / 8
-        val window = AppWindow(context, app, service, spec, width, maxContentHeight, ::focus, ::close, ::updateFullscreen)
+        val window = AppWindow(context, app, service, spec, width, maxContentHeight, ::focus, ::close, ::updateFullscreen, ::openFullscreen)
         layer.addView(window)
         window.x = (bounds.width() - width) / 2f + cascade * step
         window.y = top
@@ -103,6 +104,12 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         windows.forEach { it.x -= delta }
     }
 
+    val openApps: List<AppEntry> get() = windows.map { it.app }
+
+    fun closeApp(key: String) {
+        windows.firstOrNull { it.app.key == key }?.let(::close)
+    }
+
     fun closeAll() {
         windows.toList().forEach(::close)
     }
@@ -112,6 +119,35 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         if (visible == isFullscreenVisible) return
         isFullscreenVisible = visible
         onFullscreenChanged(visible)
+    }
+
+    /**
+     * For apps that refuse to run on a virtual display, such as banking apps. Waits for the
+     * display to go away, because launching sooner reuses the task that is being destroyed.
+     */
+    private fun openFullscreen(window: AppWindow) {
+        val context = layer.context
+        val displayManager = context.getSystemService(DisplayManager::class.java)
+        val closedDisplay = window.displayId
+        var launched = false
+        lateinit var listener: DisplayManager.DisplayListener
+        val launch = Runnable {
+            if (!launched) {
+                launched = true
+                displayManager.unregisterDisplayListener(listener)
+                WindowOpener(context).open(window.app, false, prefs.windowSize, null)
+            }
+        }
+        listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayChanged(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) {
+                if (displayId == closedDisplay) layer.postDelayed(launch, TASK_CLEANUP_MS)
+            }
+        }
+        displayManager.registerDisplayListener(listener, layer.handler)
+        close(window)
+        layer.postDelayed(launch, DISPLAY_REMOVAL_TIMEOUT_MS)
     }
 
     private fun focus(window: AppWindow) {
@@ -132,6 +168,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         private const val CASCADE_LENGTH = 5
         private const val PAGE_TURN_THRESHOLD = 0.15f
         private const val PAGE_TURN_MS = 220L
+        private const val TASK_CLEANUP_MS = 200L
+        private const val DISPLAY_REMOVAL_TIMEOUT_MS = 2000L
 
         /** The live desktop's windows, reachable from the search screen. */
         var current: AppWindows? = null

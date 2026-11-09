@@ -38,7 +38,9 @@ object ShizukuBridge {
         }
     }
 
+    /** Safe to call again when the launcher activity is recreated. */
     fun start(context: Context) {
+        if (::args.isInitialized) return
         args = Shizuku.UserServiceArgs(ComponentName(context, DisplayService::class.java))
             .daemon(false)
             .processNameSuffix("display")
@@ -58,6 +60,6 @@ object ShizukuBridge {
         onStateChanged()
     }
 
-    private const val SERVICE_VERSION = 3
+    private const val SERVICE_VERSION = 6
     private const val PERMISSION_REQUEST = 1
 }

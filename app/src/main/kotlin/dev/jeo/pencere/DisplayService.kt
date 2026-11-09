@@ -1,5 +1,6 @@
 package dev.jeo.pencere
 
+import android.app.ActivityManager
 import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -43,6 +44,24 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
         displays[displayId]?.resize(width, height, dpi)
     }
 
+    /** Most recently used first, across every display. */
+    override fun openPackages(): List<String> =
+        recentTasks().mapNotNull { packageOf(it) }.distinct()
+
+    /** Same effect as swiping an app away in the system's recents screen. */
+    override fun closePackage(packageName: String) {
+        val type = Class.forName("android.app.ActivityTaskManager")
+        val service = type.getMethod("getService").invoke(null)!!
+        val removeTask = service.javaClass.getMethod("removeTask", Int::class.javaPrimitiveType)
+        recentTasks().filter { packageOf(it) == packageName }.forEach { removeTask.invoke(service, it.taskId) }
+    }
+
+    private fun recentTasks() = shell.getSystemService(ActivityManager::class.java)
+        .getRecentTasks(MAX_RECENT_TASKS, ActivityManager.RECENT_IGNORE_UNAVAILABLE)
+
+    private fun packageOf(task: ActivityManager.RecentTaskInfo) =
+        task.baseIntent.component?.packageName ?: task.baseActivity?.packageName
+
     override fun launch(displayId: Int, component: String) {
         ProcessBuilder("am", "start", "--display", displayId.toString(), "-n", component)
             .redirectErrorStream(true)
@@ -57,6 +76,7 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
 
     private companion object {
         const val INJECT_MODE_ASYNC = 0
+        const val MAX_RECENT_TASKS = 40
 
         // Values of hidden DisplayManager.VIRTUAL_DISPLAY_FLAG_* constants.
         const val FLAG_PUBLIC = 1 shl 0
