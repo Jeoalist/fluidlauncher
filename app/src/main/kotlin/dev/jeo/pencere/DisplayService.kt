@@ -25,6 +25,11 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
     private val setDisplayId =
         InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
 
+    fun releaseAllDisplays() {
+        displays.values.forEach(VirtualDisplay::release)
+        displays.clear()
+    }
+
     override fun createDisplay(name: String, width: Int, height: Int, dpi: Int, surface: Surface): Int {
         val display = displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
         val id = display.display.displayId

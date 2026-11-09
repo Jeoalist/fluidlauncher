@@ -9,7 +9,7 @@ import moe.shizuku.server.IRemoteProcess
 import moe.shizuku.server.IShizukuService
 import rikka.shizuku.Shizuku
 
-/** Tracks whether Shizuku can run [DisplayMain] and holds the connection to it. */
+/** Holds the connection to [DisplayMain], and starts it through Shizuku when Shizuku is available. */
 object ShizukuBridge {
     enum class State { NOT_RUNNING, NEEDS_PERMISSION, CONNECTING, READY }
 
@@ -21,10 +21,10 @@ object ShizukuBridge {
 
     val state: State
         get() = when {
+            service != null -> State.READY
             !Shizuku.pingBinder() -> State.NOT_RUNNING
             Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED -> State.NEEDS_PERMISSION
-            service == null -> State.CONNECTING
-            else -> State.READY
+            else -> State.CONNECTING
         }
 
     /** Its death tells the shell process that the launcher is gone. */
@@ -50,8 +50,10 @@ object ShizukuBridge {
 
     fun requestPermission() = Shizuku.requestPermission(PERMISSION_REQUEST)
 
-    /** Called from [DisplayServiceProvider] on a binder thread. */
-    fun attach(binder: IBinder): IBinder {
+    /** Called from [DisplayServiceProvider] on a binder thread; null turns away a second service. */
+    @Synchronized
+    fun attach(binder: IBinder): IBinder? {
+        if (service?.asBinder()?.isBinderAlive == true) return null
         binder.linkToDeath({
             service = null
             process = null

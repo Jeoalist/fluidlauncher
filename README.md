@@ -15,7 +15,7 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 ## Gereksinimler
 
 - Android 13 veya üstü
-- [Shizuku](https://github.com/RikkaApps/Shizuku) (root gerekmez)
+- ADB veya [Shizuku](https://github.com/RikkaApps/Shizuku) (root gerekmez)
 - Derlemek için JDK 17 ve Android SDK 36
 
 ## Derleme
@@ -36,8 +36,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## Kurulum
 
 1. FluidLauncher'ı sistem ayarlarından varsayılan ana ekran yapın.
-2. Shizuku'yu kurup başlatın. USB ile bağlıyken `./shizuku-start.sh` de başlatır.
-3. Masaüstündeki "Küçültme için izin ver" düğmesine dokunup izni onaylayın.
+2. Sanal ekran servisini iki yoldan biriyle başlatın:
+   - **Betikle (Shizuku gerekmez):** `adb shell sh -s < fluidlauncher-start.sh`
+   - **Shizuku ile:** Shizuku'yu başlatıp masaüstündeki "Küçültme için izin ver" düğmesine dokunun; servis otomatik başlar. İsterseniz betiği Shizuku'nun `rish` aracıyla da çalıştırabilirsiniz.
 
 realme, OPPO ve OnePlus cihazlarda Shizuku "ADB'nin izni sınırlıdır" uyarısı verirse Geliştirici seçeneklerinden **İzin izlemeyi devre dışı bırak** ayarını açıp Shizuku'yu yeniden başlatın.
 
@@ -48,7 +49,7 @@ adb shell settings put global enable_freeform_support 1
 adb shell settings put global force_resizable_activities 1
 ```
 
-Shizuku telefon her yeniden başladığında tekrar başlatılmalıdır. Rootsuz başlatmak için bilgisayar bağlantısı veya bir Wi‑Fi ağına bağlı olmak gerekir; telefonun kendi hotspot'u yetmez.
+Servis telefon her yeniden başladığında tekrar başlatılmalıdır; uygulama güncellenince de betiği yeniden çalıştırın. Shizuku kullanıyorsanız onu da tekrar başlatın. Rootsuz başlatmak için bilgisayar bağlantısı veya bir Wi‑Fi ağına bağlı olmak gerekir; telefonun kendi hotspot'u yetmez.
 
 ## Kullanım
 

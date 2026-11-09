@@ -15,7 +15,7 @@
     <string name="wallpaper">Duvar kağıdını değiştir</string>
     <string name="settings">Sistem ayarları</string>
     <string name="open_failed">Uygulama açılamadı</string>
-    <string name="shizuku_not_running">Küçültme kapalı: Shizuku\'yu başlat</string>
+    <string name="shizuku_not_running">Küçültme kapalı: betiği veya Shizuku\'yu başlat</string>
     <string name="shizuku_needs_permission">Küçültme için izin ver</string>
     <string name="shizuku_connecting">Küçültme hazırlanıyor</string>
     <string name="desktop_label">Masaüstü %1$d</string>

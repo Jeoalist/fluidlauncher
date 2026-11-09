@@ -7,11 +7,17 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
+import android.os.RemoteException
+import android.os.SystemClock
 import android.util.Log
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /**
- * Entry point of the shell-privileged process, started through Shizuku with app_process.
+ * Entry point of the shell-privileged process, started with app_process by Shizuku or by
+ * fluidlauncher-start.sh.
  * It builds its own system context like scrcpy, because Shizuku's service starter crashes on Xiaomi.
  */
 object DisplayMain {
@@ -19,17 +25,51 @@ object DisplayMain {
     private const val SHELL_PACKAGE = "com.android.shell"
     private const val SHELL_UID = 2000
     private const val PRIMARY_USER = 0
+    private const val MAX_REGISTER_FAILURES = 60
+    private const val RETRY_DELAY_MS = 2000L
 
     @JvmStatic
     fun main(args: Array<String>) {
         try {
             Looper.prepareMainLooper()
-            val client = register(args[0], DisplayService(shellContext(systemContext())))
-            client.linkToDeath({ exitProcess(0) }, 0)
+            val service = DisplayService(shellContext(systemContext()))
+            thread { keepRegistered(args[0], service) }
             Looper.loop()
         } catch (e: Throwable) {
             Log.e(TAG, "display service failed", e)
             exitProcess(1)
+        }
+    }
+
+    /** Reconnects when the launcher restarts, so one start per boot is enough. */
+    private fun keepRegistered(authority: String, service: DisplayService) {
+        var failures = 0
+        while (failures < MAX_REGISTER_FAILURES) {
+            // An app update replaces the file this process was loaded from; its code is now stale.
+            if (!File(System.getenv("CLASSPATH").orEmpty()).exists()) exitProcess(0)
+            val reply = try {
+                register(authority, service)
+            } catch (e: Exception) {
+                failures++
+                SystemClock.sleep(RETRY_DELAY_MS)
+                continue
+            }
+            // No client binder means another service is already connected to the launcher.
+            val client = reply.getBinder(DisplayServiceProvider.KEY_CLIENT) ?: exitProcess(0)
+            failures = 0
+            awaitDeath(client)
+            service.releaseAllDisplays()
+        }
+        exitProcess(1)
+    }
+
+    private fun awaitDeath(binder: IBinder) {
+        val gone = CountDownLatch(1)
+        try {
+            binder.linkToDeath({ gone.countDown() }, 0)
+            gone.await()
+        } catch (_: RemoteException) {
+            // It was already dead.
         }
     }
 
@@ -49,8 +89,8 @@ object DisplayMain {
             AttributionSource.Builder(SHELL_UID).setPackageName(SHELL_PACKAGE).build()
     }
 
-    /** Hands the service to the launcher and returns a binder that dies along with the launcher. */
-    private fun register(authority: String, service: IDisplayService): IBinder {
+    /** Hands the service to the launcher; the reply holds a binder that dies along with it. */
+    private fun register(authority: String, service: IDisplayService): Bundle {
         val activityManager = Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null)!!
         val holder = activityManager.javaClass.getMethod(
             "getContentProviderExternal",
@@ -70,7 +110,6 @@ object DisplayMain {
         )
         val source = AttributionSource.Builder(SHELL_UID).setPackageName(SHELL_PACKAGE).build()
         val extras = Bundle().apply { putBinder(DisplayServiceProvider.KEY_SERVICE, service.asBinder()) }
-        val reply = call.invoke(provider, source, authority, DisplayServiceProvider.METHOD_REGISTER, null, extras) as Bundle
-        return reply.getBinder(DisplayServiceProvider.KEY_CLIENT)!!
+        return call.invoke(provider, source, authority, DisplayServiceProvider.METHOD_REGISTER, null, extras) as Bundle
     }
 }
