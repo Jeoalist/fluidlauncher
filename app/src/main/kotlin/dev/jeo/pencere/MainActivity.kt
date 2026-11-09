@@ -8,8 +8,10 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.RemoteException
 import android.os.UserHandle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -19,6 +21,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.PopupMenu
 import android.widget.TextView
+import android.widget.Toast
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -43,6 +46,7 @@ class MainActivity : Activity() {
     private var draggingButton = false
     private val shizukuStateListener: () -> Unit = { main.post(::renderShizukuState) }
     private var launcherOnTop = false
+    private var appContentTouched = false
 
     private enum class PanState { IDLE, ARMED, PANNING }
 
@@ -129,9 +133,13 @@ class MainActivity : Activity() {
         updateFocusable()
     }
 
-    /** Only the display's focused window can hide the system bars, so it must stay focusable. */
+    /**
+     * Only the display's focused window can hide the system bars, so the launcher normally stays
+     * focusable. It lets go while an app window is in use, or the keyboard would be tied to it.
+     */
     private fun updateFocusable() {
-        if (launcherOnTop || ShizukuBridge.state == ShizukuBridge.State.READY) {
+        val keepsFocus = launcherOnTop || ShizukuBridge.state == ShizukuBridge.State.READY
+        if (keepsFocus && !appContentTouched) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
@@ -177,6 +185,12 @@ class MainActivity : Activity() {
             val bounds = Rect().also(button::getGlobalVisibleRect)
             startActivity(Intent(this, SearchActivity::class.java).apply { sourceBounds = bounds })
         }
+        var heldToClose = false
+        val closeOnHold = Runnable {
+            heldToClose = true
+            appsButton.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            closeBackgroundApps()
+        }
         appsButton.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -185,20 +199,26 @@ class MainActivity : Activity() {
                     startX = view.x
                     startY = view.y
                     draggingButton = false
+                    heldToClose = false
+                    view.postDelayed(closeOnHold, CLOSE_BACKGROUND_HOLD_MS)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
-                    if (hypot(dx, dy) > touchSlop) draggingButton = true
+                    if (hypot(dx, dy) > touchSlop) {
+                        draggingButton = true
+                        view.removeCallbacks(closeOnHold)
+                    }
                     if (draggingButton) {
                         view.x = (startX + dx).coerceIn(buttonMinX(), buttonMaxX())
                         view.y = (startY + dy).coerceIn(buttonMinY(), buttonMaxY())
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.removeCallbacks(closeOnHold)
                     if (draggingButton) {
                         saveAppsButtonPosition()
-                    } else if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    } else if (event.actionMasked == MotionEvent.ACTION_UP && !heldToClose) {
                         view.performClick()
                     }
                     draggingButton = false
@@ -215,6 +235,8 @@ class MainActivity : Activity() {
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                appContentTouched = windows.isOnContent(event.rawX, event.rawY)
+                updateFocusable()
                 panState = if (canStartPan(event)) PanState.ARMED else PanState.IDLE
                 panDownX = event.rawX
                 panDownY = event.rawY
@@ -265,6 +287,29 @@ class MainActivity : Activity() {
 
     private fun renderDesktopLabel(number: Int) {
         desktopLabel.text = getString(R.string.desktop_label, number)
+    }
+
+    /** Closes launchable apps that have no window here, leaving this launcher and the home app. */
+    private fun closeBackgroundApps() {
+        val service = ShizukuBridge.service
+        if (service == null) {
+            Toast.makeText(this, R.string.background_needs_shizuku, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val home = packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
+        val kept = windows.openApps.map { it.packageName }.toSet() + packageName + home?.activityInfo?.packageName
+        val launchable = AppCatalog.apps.map { it.packageName }.toSet()
+        background.execute {
+            val closed = try {
+                service.openPackages().filter { it in launchable && it !in kept }.onEach(service::closePackage).size
+            } catch (_: RemoteException) {
+                0
+            }
+            main.post {
+                val message = if (closed == 0) getString(R.string.background_none) else getString(R.string.background_closed, closed)
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun buttonMinX() = (systemBars.left + margin).toFloat()
@@ -336,6 +381,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        const val CLOSE_BACKGROUND_HOLD_MS = 1500L
         const val PAN_ZONE_HEIGHT_DP = 200
         const val PAN_ZONE_WIDTH_RATIO = 0.6f
         const val PAN_DIRECTION_RATIO = 1.5f

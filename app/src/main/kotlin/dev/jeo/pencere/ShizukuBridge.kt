@@ -1,16 +1,19 @@
 package dev.jeo.pencere
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.IBinder
+import android.util.Log
+import moe.shizuku.server.IRemoteProcess
+import moe.shizuku.server.IShizukuService
 import rikka.shizuku.Shizuku
 
-/** Tracks whether Shizuku can run [DisplayService] and holds the connection to it. */
+/** Tracks whether Shizuku can run [DisplayMain] and holds the connection to it. */
 object ShizukuBridge {
     enum class State { NOT_RUNNING, NEEDS_PERMISSION, CONNECTING, READY }
 
+    @Volatile
     var service: IDisplayService? = null
         private set
 
@@ -24,30 +27,22 @@ object ShizukuBridge {
             else -> State.READY
         }
 
-    private lateinit var args: Shizuku.UserServiceArgs
-
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            service = IDisplayService.Stub.asInterface(binder)
-            onStateChanged()
-        }
-
-        override fun onServiceDisconnected(name: ComponentName) {
-            service = null
-            onStateChanged()
-        }
-    }
+    /** Its death tells the shell process that the launcher is gone. */
+    private val clientToken = Binder()
+    private var process: IRemoteProcess? = null
+    private var classPath = ""
+    private var authority = ""
+    private var started = false
 
     /** Safe to call again when the launcher activity is recreated. */
     fun start(context: Context) {
-        if (::args.isInitialized) return
-        args = Shizuku.UserServiceArgs(ComponentName(context, DisplayService::class.java))
-            .daemon(false)
-            .processNameSuffix("display")
-            .version(SERVICE_VERSION)
+        if (started) return
+        started = true
+        classPath = context.applicationInfo.sourceDir
+        authority = "${context.packageName}.display"
         Shizuku.addBinderReceivedListenerSticky { connect() }
         Shizuku.addBinderDeadListener {
-            service = null
+            process = null
             onStateChanged()
         }
         Shizuku.addRequestPermissionResultListener { _, _ -> connect() }
@@ -55,11 +50,33 @@ object ShizukuBridge {
 
     fun requestPermission() = Shizuku.requestPermission(PERMISSION_REQUEST)
 
+    /** Called from [DisplayServiceProvider] on a binder thread. */
+    fun attach(binder: IBinder): IBinder {
+        binder.linkToDeath({
+            service = null
+            process = null
+            connect()
+        }, 0)
+        service = IDisplayService.Stub.asInterface(binder)
+        onStateChanged()
+        return clientToken
+    }
+
     private fun connect() {
-        if (state == State.CONNECTING) Shizuku.bindUserService(args, connection)
+        if (state == State.CONNECTING && process == null) startProcess()
         onStateChanged()
     }
 
-    private const val SERVICE_VERSION = 6
+    private fun startProcess() {
+        val command = "CLASSPATH='$classPath' exec app_process /system/bin " +
+            "--nice-name=fluidlauncher_display ${DisplayMain::class.java.name} '$authority' >/dev/null 2>&1"
+        try {
+            process = IShizukuService.Stub.asInterface(Shizuku.getBinder())
+                .newProcess(arrayOf("sh", "-c", command), null, null)
+        } catch (e: Exception) {
+            Log.e("FluidLauncher", "could not start display service", e)
+        }
+    }
+
     private const val PERMISSION_REQUEST = 1
 }

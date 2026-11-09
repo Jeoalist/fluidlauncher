@@ -62,6 +62,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     fun isOnTitleBar(screenX: Float, screenY: Float) = windows.any { it.isOnTitleBar(screenX, screenY) }
 
+    fun isOnContent(screenX: Float, screenY: Float) = windows.any { it.isOnContent(screenX, screenY) }
+
     fun keepInArea(top: Float) {
         topLimit = top
         windows.forEach { it.keepInArea(top) }

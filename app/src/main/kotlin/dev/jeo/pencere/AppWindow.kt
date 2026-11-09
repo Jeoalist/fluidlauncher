@@ -3,9 +3,11 @@ package dev.jeo.pencere
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
 import android.os.RemoteException
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.InputDevice
@@ -55,8 +57,11 @@ class AppWindow(
     private var topLimit = 0f
     private var contentHeight = minOf(initialWidth * spec.height / spec.width, maxContentHeight)
 
+    /** Display pixels hidden above the window, for apps that leave a blank strip on virtual displays. */
+    private val topCrop = (TOP_CROP_DP[app.packageName] ?: 0) * spec.dpi / DisplayMetrics.DENSITY_DEFAULT
+
     // The width stays fixed so that width sets the app's scale and height reveals more of it.
-    private var displayHeight = (contentHeight * spec.width / windowWidth) and 1.inv()
+    private var displayHeight = computeDisplayHeight()
 
     init {
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -75,10 +80,12 @@ class AppWindow(
             override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
                 texture.setDefaultBufferSize(displayWidth, displayHeight)
                 startApp(texture)
+                applyCrop()
             }
 
             override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
                 texture.setDefaultBufferSize(displayWidth, displayHeight)
+                applyCrop()
             }
 
             override fun onSurfaceTextureDestroyed(texture: SurfaceTexture) = true
@@ -94,6 +101,9 @@ class AppWindow(
     /** Touches here belong to the window's own drag and resize handling. */
     fun isOnTitleBar(screenX: Float, screenY: Float): Boolean =
         screenX >= x && screenX <= x + width && screenY >= y && screenY <= y + titleHeight
+
+    fun isOnContent(screenX: Float, screenY: Float): Boolean =
+        screenX >= x && screenX <= x + width && screenY > y + titleHeight && screenY <= y + height
 
     /** Keeps the title bar below the status bar and reachable after the screen rotates. */
     fun keepInArea(top: Float) {
@@ -284,15 +294,27 @@ class AppWindow(
     /** Waits for the finger to lift, because every display resize makes the app lay out again. */
     private fun resizeDisplay() {
         if (displayId == NO_DISPLAY) return
-        displayHeight = (contentHeight * displayWidth / windowWidth) and 1.inv()
+        displayHeight = computeDisplayHeight()
         texture.surfaceTexture?.setDefaultBufferSize(displayWidth, displayHeight)
         call { service.resizeDisplay(displayId, displayWidth, displayHeight, spec.dpi) }
+        applyCrop()
+    }
+
+    private fun computeDisplayHeight() = (contentHeight * displayWidth / windowWidth + topCrop) and 1.inv()
+
+    private fun applyCrop() {
+        if (topCrop == 0 || texture.height == 0) return
+        val visibleHeight = (displayHeight - topCrop).toFloat()
+        texture.setTransform(Matrix().apply {
+            setScale(1f, displayHeight / visibleHeight)
+            postTranslate(0f, -topCrop * texture.height / visibleHeight)
+        })
     }
 
     private fun forwardTouch(event: MotionEvent) {
         if (displayId == NO_DISPLAY) return
         val scaleX = displayWidth / texture.width.toFloat()
-        val scaleY = displayHeight / texture.height.toFloat()
+        val scaleY = (displayHeight - topCrop) / texture.height.toFloat()
         val count = event.pointerCount
         val properties = Array(count) { i ->
             MotionEvent.PointerProperties().also { event.getPointerProperties(i, it) }
@@ -301,7 +323,7 @@ class AppWindow(
             MotionEvent.PointerCoords().also {
                 event.getPointerCoords(i, it)
                 it.x *= scaleX
-                it.y *= scaleY
+                it.y = it.y * scaleY + topCrop
             }
         }
         val scaled = MotionEvent.obtain(
@@ -323,6 +345,7 @@ class AppWindow(
     private companion object {
         const val NO_DISPLAY = -1
         const val FULLSCREEN_HOLD_MS = 1500L
+        val TOP_CROP_DP = mapOf("com.instagram.android" to 56, "com.zhiliaoapp.musically" to 56)
         const val TITLE_HEIGHT_DP = 24
         const val BUTTON_WIDTH_DP = 44
         const val MIN_WIDTH_DP = 140

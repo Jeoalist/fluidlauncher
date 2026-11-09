@@ -8,12 +8,14 @@ import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.system.exitProcess
 
-/** Runs in a Shizuku-started process with shell privileges, not in the launcher's process. */
-class DisplayService(context: Context) : IDisplayService.Stub() {
-    // The display service checks the caller's package against its uid, which is shell's here.
-    private val shell = context.createPackageContext("com.android.shell", 0)
+/** Runs in the shell-privileged process started by [DisplayMain], not in the launcher's. */
+class DisplayService(private val shell: Context) : IDisplayService.Stub() {
+    // Built directly so that it reports the shell package; the system's own instance reports "android".
+    private val displayManager = DisplayManager::class.java
+        .getDeclaredConstructor(Context::class.java)
+        .apply { isAccessible = true }
+        .newInstance(shell)
     private val displays = ConcurrentHashMap<Int, VirtualDisplay>()
 
     private val inputManagerType = Class.forName("android.hardware.input.InputManagerGlobal")
@@ -23,14 +25,8 @@ class DisplayService(context: Context) : IDisplayService.Stub() {
     private val setDisplayId =
         InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
 
-    override fun destroy() {
-        displays.values.forEach(VirtualDisplay::release)
-        exitProcess(0)
-    }
-
     override fun createDisplay(name: String, width: Int, height: Int, dpi: Int, surface: Surface): Int {
-        val display = shell.getSystemService(DisplayManager::class.java)
-            .createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
+        val display = displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
         val id = display.display.displayId
         displays[id] = display
         return id

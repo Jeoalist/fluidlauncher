@@ -19,4 +19,7 @@
     <string name="shizuku_needs_permission">Küçültme için izin ver</string>
     <string name="shizuku_connecting">Küçültme hazırlanıyor</string>
     <string name="desktop_label">Masaüstü %1$d</string>
+    <string name="background_closed">%1$d arka plan uygulaması kapatıldı</string>
+    <string name="background_none">Kapatılacak arka plan uygulaması yok</string>
+    <string name="background_needs_shizuku">Bunun için Shizuku gerekli</string>
 </resources>
