@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pencere</string>
+    <string name="search_hint">Uygulama ara</string>
+    <string name="all_apps">Tüm uygulamalar</string>
+    <string name="mode_window">Pencere modu</string>
+    <string name="mode_fullscreen">Tam ekran modu</string>
+    <string name="open_window">Pencerede aç</string>
+    <string name="open_fullscreen">Tam ekran aç</string>
+    <string name="app_info">Uygulama bilgisi</string>
+    <string name="uninstall">Kaldır</string>
+    <string name="size_small">Pencere boyutu: Küçük</string>
+    <string name="size_medium">Pencere boyutu: Orta</string>
+    <string name="size_large">Pencere boyutu: Büyük</string>
+    <string name="wallpaper">Duvar kağıdını değiştir</string>
+    <string name="settings">Sistem ayarları</string>
+    <string name="open_failed">Uygulama açılamadı</string>
+    <string name="shizuku_not_running">Küçültme kapalı: Shizuku\'yu başlat</string>
+    <string name="shizuku_needs_permission">Küçültme için izin ver</string>
+    <string name="shizuku_connecting">Küçültme hazırlanıyor</string>
+    <string name="desktop_label">Masaüstü %1$d</string>
+</resources>

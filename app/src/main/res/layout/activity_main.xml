@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/desktop"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
+
+        <TextClock
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:format12Hour="HH:mm"
+            android:format24Hour="HH:mm"
+            android:shadowColor="#AA000000"
+            android:shadowRadius="10"
+            android:textColor="#FFFFFF"
+            android:textSize="64sp" />
+
+        <TextClock
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="d MMMM EEEE"
+            android:format24Hour="d MMMM EEEE"
+            android:shadowColor="#AA000000"
+            android:shadowRadius="8"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/modePill"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginTop="14dp"
+            android:background="@drawable/pill"
+            android:gravity="center"
+            android:paddingHorizontal="18dp"
+            android:textColor="#FFC857"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/shizukuPill"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/pill"
+            android:gravity="center"
+            android:paddingHorizontal="18dp"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/desktopLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:shadowColor="#AA000000"
+            android:shadowRadius="8"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/windowLayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false" />
+
+    <ImageView
+        android:id="@+id/appsButton"
+        android:layout_width="62dp"
+        android:layout_height="62dp"
+        android:background="@drawable/fab"
+        android:contentDescription="@string/all_apps"
+        android:padding="17dp"
+        android:src="@drawable/ic_grid" />
+</FrameLayout>
