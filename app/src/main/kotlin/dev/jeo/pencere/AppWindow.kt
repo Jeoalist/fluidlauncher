@@ -148,6 +148,28 @@ class AppWindow(
         keepInArea(topLimit)
     }
 
+    /**
+     * Turns the app's display sideways at the same app scale, so the app lays itself out in the
+     * other orientation. The window shrinks evenly if the turned window would not fit.
+     */
+    private fun toggleLandscape() {
+        if (isFilled || displayId == NO_DISPLAY) return
+        val layer = parent as View
+        val appScale = windowWidth / displayWidth.toFloat()
+        val turnedDisplayWidth = (displayHeight - topCrop) and 1.inv()
+        val width = turnedDisplayWidth * appScale
+        val height = displayWidth * appScale
+        val fit = minOf(1f, layer.width / width, (layer.height - topLimit - titleHeight) / height)
+        displayWidth = turnedDisplayWidth
+        windowWidth = (width * fit).roundToInt()
+        contentHeight = (height * fit).roundToInt()
+        x = x.coerceAtMost(layer.width - windowWidth.toFloat())
+        y = y.coerceAtMost(layer.height - contentHeight - titleHeight.toFloat())
+        applySize()
+        resizeDisplay()
+        keepInArea(topLimit)
+    }
+
     private fun availableContentHeight() = (parent as View).height - topLimit.toInt() - titleHeight
 
     private fun fillsArea() = windowWidth == (parent as View).width && contentHeight == availableContentHeight()
@@ -234,6 +256,12 @@ class AppWindow(
         var startY = 0f
         var dragging = false
         var lastTapTime = 0L
+        var tapCount = 0
+        // Waits out the tap window so that a double tap is not mistaken for the start of a triple.
+        val dispatchTaps = Runnable {
+            if (tapCount == 2) toggleFilled()
+            tapCount = 0
+        }
         val hold = Runnable {
             handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             onOpenFullscreen(this)
@@ -261,11 +289,14 @@ class AppWindow(
                 MotionEvent.ACTION_UP -> {
                     handle.removeCallbacks(hold)
                     if (!dragging) {
-                        if (event.eventTime - lastTapTime <= doubleTapTimeout) {
-                            lastTapTime = 0L
-                            toggleFilled()
+                        handle.removeCallbacks(dispatchTaps)
+                        tapCount = if (event.eventTime - lastTapTime <= doubleTapTimeout) tapCount + 1 else 1
+                        lastTapTime = event.eventTime
+                        if (tapCount >= 3) {
+                            tapCount = 0
+                            toggleLandscape()
                         } else {
-                            lastTapTime = event.eventTime
+                            handle.postDelayed(dispatchTaps, doubleTapTimeout.toLong())
                         }
                     }
                 }
