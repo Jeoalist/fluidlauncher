@@ -49,11 +49,12 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val phoneHeight = maxOf(bounds.width(), bounds.height())
         // Two thirds of the panel at two thirds of the density: identical layout, less GPU work.
         val spec = AppWindow.DisplaySpec(even(phoneWidth * 2 / 3), even(phoneHeight * 2 / 3), dpi * 2 / 3)
-        val width = (phoneWidth * prefs.windowSize.scale).toInt()
         val step = bounds.width() * CASCADE_STEP
         val top = bounds.height() / 8f + cascade * step
         // Keeps the resize corner on screen, which matters in landscape.
         val maxContentHeight = (bounds.height() - top).toInt() - bounds.height() / 8
+        // In landscape the portrait window is shrunk evenly to fit, so the app keeps its shape.
+        val width = minOf((phoneWidth * prefs.windowSize.scale).toInt(), maxContentHeight * spec.width / spec.height)
         val window = AppWindow(context, app, existing != null, service, spec, width, maxContentHeight, ::focus, ::close, ::updateFullscreen, ::openFullscreen)
         layer.addView(window)
         window.x = (bounds.width() - width) / 2f + cascade * step
@@ -108,6 +109,24 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val delta = value - offset
         offset = value
         windows.forEach { it.x -= delta }
+    }
+
+    init {
+        layer.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val oldWidth = oldRight - oldLeft
+            val oldHeight = oldBottom - oldTop
+            val width = right - left
+            val height = bottom - top
+            val rotated = oldWidth > 0 && oldHeight > 0 && (oldWidth > oldHeight) != (width > height)
+            // Posted because resizing children from inside a layout pass is not allowed.
+            if (rotated) layer.post { onRotated(width / oldWidth.toFloat(), height / oldHeight.toFloat()) }
+        }
+    }
+
+    private fun onRotated(scaleX: Float, scaleY: Float) {
+        panAnimator?.cancel()
+        offset *= scaleX
+        windows.forEach { it.scaleForRotation(scaleX, scaleY) }
     }
 
     val openApps: List<AppEntry> get() = windows.map { it.app }

@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /** A movable window showing [app] running at phone size on its own virtual display. */
 @SuppressLint("ClickableViewAccessibility", "ViewConstructor")
@@ -43,7 +44,7 @@ class AppWindow(
     data class DisplaySpec(val width: Int, val height: Int, val dpi: Int)
 
     /** Size to return to; [x] is relative to the filled window so paging cannot make it stale. */
-    private data class Restore(val x: Float, val y: Float, val width: Int, val height: Int)
+    private data class Restore(val x: Float, val y: Float, val width: Int, val height: Int, val displayWidth: Int)
 
     private val density = resources.displayMetrics.density
     private val titleHeight = (TITLE_HEIGHT_DP * density).toInt()
@@ -58,6 +59,9 @@ class AppWindow(
     private var displayWidth = spec.width
     private var restore: Restore? = null
     private var topLimit = 0f
+
+    /** How much the last turn to landscape shrank the window, undone when it turns back. */
+    private var rotationShrink = 1f
     private var contentHeight = minOf(initialWidth * spec.height / spec.width, maxContentHeight)
 
     /** Display pixels hidden above the window, for apps that leave a blank strip on virtual displays. */
@@ -117,6 +121,33 @@ class AppWindow(
 
     val isFilled: Boolean get() = restore != null
 
+    /**
+     * Rotation keeps the app portrait and only scales the window evenly: turning to landscape
+     * shrinks it just enough to fit the shorter screen, turning back undoes that shrink.
+     */
+    fun scaleForRotation(widthScale: Float, heightScale: Float) {
+        val layer = parent as View
+        x *= widthScale
+        y *= heightScale
+        val scale = if (heightScale < 1f) {
+            val room = layer.height - topLimit - titleHeight * 2f
+            minOf(1f, room / contentHeight).also { rotationShrink = it }
+        } else {
+            (1f / rotationShrink).also { rotationShrink = 1f }
+        }
+        restore = restore?.let {
+            Restore(it.x * widthScale, it.y * heightScale, (it.width * scale).roundToInt(), (it.height * scale).roundToInt(), it.displayWidth)
+        }
+        if (!isFilled) {
+            windowWidth = (windowWidth * scale).roundToInt()
+            contentHeight = (contentHeight * scale).roundToInt()
+            applySize()
+            resizeDisplay()
+            y = y.coerceAtMost(layer.height - contentHeight - titleHeight.toFloat())
+        }
+        keepInArea(topLimit)
+    }
+
     private fun availableContentHeight() = (parent as View).height - topLimit.toInt() - titleHeight
 
     private fun fillsArea() = windowWidth == (parent as View).width && contentHeight == availableContentHeight()
@@ -124,7 +155,7 @@ class AppWindow(
     private fun toggleFilled() {
         val saved = restore
         if (saved == null) {
-            restore = Restore(x, y, windowWidth, contentHeight)
+            restore = Restore(x, y, windowWidth, contentHeight, displayWidth)
             x = 0f
             fillArea()
         } else {
@@ -133,7 +164,7 @@ class AppWindow(
             y = saved.y
             windowWidth = saved.width
             contentHeight = saved.height
-            displayWidth = spec.width
+            displayWidth = saved.displayWidth
             applySize()
             resizeDisplay()
         }
@@ -304,8 +335,8 @@ class AppWindow(
         val layer = parent as View
         val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, layer.width)
         windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
-        val minHeight = windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100
-        val maxHeight = minOf(windowWidth * maxDisplayHeight / spec.width, (startY + startHeight - topLimit).toInt())
+        val minHeight = minOf(windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100, minWidth)
+        val maxHeight = minOf(windowWidth * maxDisplayHeight / displayWidth, (startY + startHeight - topLimit).toInt())
         contentHeight = (startHeight - (event.rawY - downY).toInt()).coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
         x = startX + startWidth - windowWidth
         y = startY + startHeight - contentHeight
