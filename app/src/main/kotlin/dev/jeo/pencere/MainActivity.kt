@@ -1,6 +1,7 @@
 package dev.jeo.pencere
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.LauncherApps
 import android.graphics.Insets
@@ -104,10 +105,7 @@ class MainActivity : Activity() {
             prefs.windowed = !prefs.windowed
             renderMode()
         }
-        desktop.setOnLongClickListener {
-            showDesktopMenu()
-            true
-        }
+        setUpDesktopHold()
         setUpAppsButton()
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         panZoneHeight = (PAN_ZONE_HEIGHT_DP * resources.displayMetrics.density).toInt()
@@ -200,7 +198,7 @@ class MainActivity : Activity() {
                     startY = view.y
                     draggingButton = false
                     heldToClose = false
-                    view.postDelayed(closeOnHold, CLOSE_BACKGROUND_HOLD_MS)
+                    if (prefs.closeBackgroundOnHold) view.postDelayed(closeOnHold, CLOSE_BACKGROUND_HOLD_MS)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downRawX
@@ -362,26 +360,38 @@ class MainActivity : Activity() {
         modePill.setText(if (prefs.windowed) R.string.mode_window else R.string.mode_fullscreen)
     }
 
-    private fun showDesktopMenu() {
-        PopupMenu(this, modePill).apply {
-            menu.add(R.string.size_small).setOnMenuItemClickListener { prefs.windowSize = WindowSize.SMALL; true }
-            menu.add(R.string.size_medium).setOnMenuItemClickListener { prefs.windowSize = WindowSize.MEDIUM; true }
-            menu.add(R.string.size_large).setOnMenuItemClickListener { prefs.windowSize = WindowSize.LARGE; true }
-            menu.add(R.string.wallpaper).setOnMenuItemClickListener {
-                startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), getString(R.string.wallpaper)))
-                true
+    /** Holding an empty spot on the desktop offers to open the launcher settings. */
+    private fun setUpDesktopHold() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        val askToOpenSettings = Runnable {
+            desktop.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            AlertDialog.Builder(this)
+                .setMessage(R.string.open_settings_question)
+                .setPositiveButton(R.string.open) { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+        desktop.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    view.postDelayed(askToOpenSettings, SETTINGS_HOLD_MS)
+                }
+                MotionEvent.ACTION_MOVE ->
+                    if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) view.removeCallbacks(askToOpenSettings)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> view.removeCallbacks(askToOpenSettings)
             }
-            menu.add(R.string.settings).setOnMenuItemClickListener {
-                startActivity(Intent(Settings.ACTION_SETTINGS))
-                true
-            }
-            show()
+            true
         }
     }
 
     private companion object {
         const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
         const val CLOSE_BACKGROUND_HOLD_MS = 1500L
+        const val SETTINGS_HOLD_MS = 1500L
         const val PAN_ZONE_HEIGHT_DP = 200
         const val PAN_ZONE_WIDTH_RATIO = 0.6f
         const val PAN_DIRECTION_RATIO = 1.5f

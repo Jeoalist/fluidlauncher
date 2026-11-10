@@ -9,9 +9,6 @@
     <string name="open_fullscreen">Tam ekran aç</string>
     <string name="app_info">Uygulama bilgisi</string>
     <string name="uninstall">Kaldır</string>
-    <string name="size_small">Pencere boyutu: Küçük</string>
-    <string name="size_medium">Pencere boyutu: Orta</string>
-    <string name="size_large">Pencere boyutu: Büyük</string>
     <string name="wallpaper">Duvar kağıdını değiştir</string>
     <string name="settings">Sistem ayarları</string>
     <string name="open_failed">Uygulama açılamadı</string>
@@ -22,4 +19,26 @@
     <string name="background_closed">%1$d arka plan uygulaması kapatıldı</string>
     <string name="background_none">Kapatılacak arka plan uygulaması yok</string>
     <string name="background_needs_shizuku">Bunun için Shizuku gerekli</string>
+    <string name="window_size_small">Küçük</string>
+    <string name="window_size_medium">Orta</string>
+    <string name="window_size_large">Büyük</string>
+    <string name="action_none">Hiçbir şey yapma</string>
+    <string name="action_fill">Tam ekran yap / geri al</string>
+    <string name="action_rotate">Yatay / dikey çevir</string>
+    <string name="action_real_fullscreen">Gerçek tam ekranda aç</string>
+    <string name="action_back">Geri</string>
+    <string name="action_close">Pencereyi kapat</string>
+    <string name="action_close_background">Arka plan uygulamalarını kapat</string>
+    <string name="gesture_title_double">Başlık barına 2 kez dokununca</string>
+    <string name="gesture_title_triple">Başlık barına 3 kez dokununca</string>
+    <string name="gesture_title_hold">Başlık barına 1,5 sn basınca</string>
+    <string name="gesture_grip_tap">Sol üst köşeye dokununca</string>
+    <string name="settings_title">FluidLauncher ayarları</string>
+    <string name="settings_windows">Pencere hareketleri</string>
+    <string name="settings_general">Genel</string>
+    <string name="setting_window_size">Yeni pencere boyutu</string>
+    <string name="setting_button_hold">Uygulama düğmesine 1,5 sn basınca</string>
+    <string name="open_settings_question">Ayarlar açılsın mı?</string>
+    <string name="open">Aç</string>
+    <string name="cancel">Vazgeç</string>
 </resources>

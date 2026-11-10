@@ -9,10 +9,10 @@ import android.view.WindowInsets
 import android.view.WindowManager
 
 /** [scale] sizes scaled windows; the width and height ratios size system freeform windows. */
-enum class WindowSize(val widthRatio: Float, val heightRatio: Float, val scale: Float) {
-    SMALL(0.62f, 0.38f, 0.42f),
-    MEDIUM(0.78f, 0.50f, 0.55f),
-    LARGE(0.92f, 0.66f, 0.72f),
+enum class WindowSize(val widthRatio: Float, val heightRatio: Float, val scale: Float, val labelRes: Int) {
+    SMALL(0.62f, 0.38f, 0.42f, R.string.window_size_small),
+    MEDIUM(0.78f, 0.50f, 0.55f, R.string.window_size_medium),
+    LARGE(0.92f, 0.66f, 0.72f, R.string.window_size_large),
 }
 
 /** Opens apps through the system freeform window manager, cascading new windows. */

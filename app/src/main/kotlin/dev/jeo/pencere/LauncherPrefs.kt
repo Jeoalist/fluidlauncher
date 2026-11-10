@@ -22,6 +22,18 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getFloat(KEY_BUTTON_Y, 0.95f)
         set(value) = prefs.edit().putFloat(KEY_BUTTON_Y, value).apply()
 
+    fun windowAction(gesture: WindowGesture): WindowAction =
+        prefs.getString(gesture.key, null)
+            ?.let { name -> WindowAction.entries.firstOrNull { it.name == name } }
+            ?: gesture.default
+
+    fun setWindowAction(gesture: WindowGesture, action: WindowAction) =
+        prefs.edit().putString(gesture.key, action.name).apply()
+
+    var closeBackgroundOnHold: Boolean
+        get() = prefs.getBoolean(KEY_CLOSE_BACKGROUND_ON_HOLD, true)
+        set(value) = prefs.edit().putBoolean(KEY_CLOSE_BACKGROUND_ON_HOLD, value).apply()
+
     /** Keys of apps opened from this launcher, most recent first. */
     val recentKeys: List<String>
         get() = prefs.getString(KEY_RECENTS, null)?.split(SEPARATOR).orEmpty()
@@ -37,6 +49,7 @@ class LauncherPrefs(context: Context) {
         const val KEY_BUTTON_X = "button_x"
         const val KEY_BUTTON_Y = "button_y"
         const val KEY_RECENTS = "recent_keys"
+        const val KEY_CLOSE_BACKGROUND_ON_HOLD = "close_background_on_hold"
         const val SEPARATOR = "|"
         const val MAX_RECENTS = 7
     }

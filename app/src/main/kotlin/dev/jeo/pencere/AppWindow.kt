@@ -47,6 +47,7 @@ class AppWindow(
     private data class Restore(val x: Float, val y: Float, val width: Int, val height: Int, val displayWidth: Int)
 
     private val density = resources.displayMetrics.density
+    private val prefs = LauncherPrefs(context)
     private val titleHeight = (TITLE_HEIGHT_DP * density).toInt()
     private val buttonWidth = (BUTTON_WIDTH_DP * density).toInt()
     private val minWidth = (MIN_WIDTH_DP * density).toInt()
@@ -259,12 +260,12 @@ class AppWindow(
         var tapCount = 0
         // Waits out the tap window so that a double tap is not mistaken for the start of a triple.
         val dispatchTaps = Runnable {
-            if (tapCount == 2) toggleFilled()
+            if (tapCount == 2) perform(WindowGesture.TITLE_DOUBLE_TAP)
             tapCount = 0
         }
         val hold = Runnable {
             handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            onOpenFullscreen(this)
+            perform(WindowGesture.TITLE_HOLD)
         }
         handle.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -275,7 +276,9 @@ class AppWindow(
                     startX = x
                     startY = y
                     dragging = false
-                    handle.postDelayed(hold, FULLSCREEN_HOLD_MS)
+                    if (prefs.windowAction(WindowGesture.TITLE_HOLD) != WindowAction.NONE) {
+                        handle.postDelayed(hold, FULLSCREEN_HOLD_MS)
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
@@ -292,11 +295,15 @@ class AppWindow(
                         handle.removeCallbacks(dispatchTaps)
                         tapCount = if (event.eventTime - lastTapTime <= doubleTapTimeout) tapCount + 1 else 1
                         lastTapTime = event.eventTime
-                        if (tapCount >= 3) {
-                            tapCount = 0
-                            toggleLandscape()
-                        } else {
-                            handle.postDelayed(dispatchTaps, doubleTapTimeout.toLong())
+                        val tripleUnused = prefs.windowAction(WindowGesture.TITLE_TRIPLE_TAP) == WindowAction.NONE
+                        when {
+                            tapCount >= 3 -> {
+                                tapCount = 0
+                                perform(WindowGesture.TITLE_TRIPLE_TAP)
+                            }
+                            // Nothing to wait for when triple taps do nothing.
+                            tapCount == 2 && tripleUnused -> dispatchTaps.run()
+                            else -> handle.postDelayed(dispatchTaps, doubleTapTimeout.toLong())
                         }
                     }
                 }
@@ -347,7 +354,7 @@ class AppWindow(
                     if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) resizing = true
                     if (resizing && !isFilled) resizeFromTopLeft(event, downX, downY, startX, startY, startWidth, startHeight)
                 }
-                MotionEvent.ACTION_UP -> if (!resizing) sendBack() else if (!isFilled) resizeDisplay()
+                MotionEvent.ACTION_UP -> if (!resizing) perform(WindowGesture.GRIP_TAP) else if (!isFilled) resizeDisplay()
                 MotionEvent.ACTION_CANCEL -> if (resizing && !isFilled) resizeDisplay()
             }
             true
@@ -372,6 +379,17 @@ class AppWindow(
         x = startX + startWidth - windowWidth
         y = startY + startHeight - contentHeight
         applySize()
+    }
+
+    private fun perform(gesture: WindowGesture) {
+        when (prefs.windowAction(gesture)) {
+            WindowAction.NONE -> Unit
+            WindowAction.FILL -> toggleFilled()
+            WindowAction.ROTATE -> toggleLandscape()
+            WindowAction.REAL_FULLSCREEN -> onOpenFullscreen(this)
+            WindowAction.BACK -> sendBack()
+            WindowAction.CLOSE -> onClose(this)
+        }
     }
 
     private fun sendBack() {
