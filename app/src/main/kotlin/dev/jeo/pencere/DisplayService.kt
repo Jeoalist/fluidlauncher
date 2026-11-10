@@ -5,6 +5,7 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.view.InputEvent
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import java.util.concurrent.ConcurrentHashMap
@@ -63,14 +64,20 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
     private fun packageOf(task: ActivityManager.RecentTaskInfo) =
         task.baseIntent.component?.packageName ?: task.baseActivity?.packageName
 
-    override fun launch(displayId: Int, component: String) {
-        ProcessBuilder("am", "start", "--display", displayId.toString(), "-n", component)
+    /** [newTask] starts a second copy of an app instead of moving its existing task here. */
+    override fun launch(displayId: Int, component: String, newTask: Boolean) {
+        val flags = if (newTask) listOf("-f", NEW_SEPARATE_TASK_FLAGS) else emptyList()
+        ProcessBuilder(listOf("am", "start", "--display", displayId.toString()) + flags + listOf("-n", component))
             .redirectErrorStream(true)
             .start()
             .waitFor()
     }
 
-    override fun injectMotion(displayId: Int, event: MotionEvent) {
+    override fun injectMotion(displayId: Int, event: MotionEvent) = inject(displayId, event)
+
+    override fun injectKey(displayId: Int, event: KeyEvent) = inject(displayId, event)
+
+    private fun inject(displayId: Int, event: InputEvent) {
         setDisplayId.invoke(event, displayId)
         injectInputEvent.invoke(inputManager, event, INJECT_MODE_ASYNC)
     }
@@ -78,6 +85,9 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
     private companion object {
         const val INJECT_MODE_ASYNC = 0
         const val MAX_RECENT_TASKS = 40
+
+        // Intent.FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_MULTIPLE_TASK.
+        const val NEW_SEPARATE_TASK_FLAGS = "0x18000000"
 
         // Values of hidden DisplayManager.VIRTUAL_DISPLAY_FLAG_* constants.
         const val FLAG_PUBLIC = 1 shl 0

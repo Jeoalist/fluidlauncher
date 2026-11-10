@@ -30,11 +30,15 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
     var isFullscreenVisible = false
         private set
 
-    /** Returns false when Shizuku is unavailable, so the caller can fall back to system windows. */
-    fun open(app: AppEntry): Boolean {
+    /**
+     * Returns false when the display service is unavailable, so the caller can fall back to system
+     * windows. [newWindow] opens another copy even when the app already has a window.
+     */
+    fun open(app: AppEntry, newWindow: Boolean): Boolean {
         val service = ShizukuBridge.service ?: return false
-        windows.firstOrNull { it.app.key == app.key }?.let {
-            focus(it)
+        val existing = windows.firstOrNull { it.app.key == app.key }
+        if (existing != null && !newWindow) {
+            focus(existing)
             return true
         }
         val context = layer.context
@@ -50,7 +54,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val top = bounds.height() / 8f + cascade * step
         // Keeps the resize corner on screen, which matters in landscape.
         val maxContentHeight = (bounds.height() - top).toInt() - bounds.height() / 8
-        val window = AppWindow(context, app, service, spec, width, maxContentHeight, ::focus, ::close, ::updateFullscreen, ::openFullscreen)
+        val window = AppWindow(context, app, existing != null, service, spec, width, maxContentHeight, ::focus, ::close, ::updateFullscreen, ::openFullscreen)
         layer.addView(window)
         window.x = (bounds.width() - width) / 2f + cascade * step
         window.y = top
@@ -109,7 +113,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
     val openApps: List<AppEntry> get() = windows.map { it.app }
 
     fun closeApp(key: String) {
-        windows.firstOrNull { it.app.key == key }?.let(::close)
+        windows.filter { it.app.key == key }.forEach(::close)
     }
 
     fun closeAll() {

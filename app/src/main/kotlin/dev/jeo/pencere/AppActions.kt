@@ -24,11 +24,12 @@ fun Activity.applySystemBars(hideStatusBar: Boolean) {
     }
 }
 
-fun Activity.launchApp(app: AppEntry, asWindow: Boolean, source: View) {
+/** [newWindow] opens another copy instead of bringing an existing window forward. */
+fun Activity.launchApp(app: AppEntry, asWindow: Boolean, source: View, newWindow: Boolean = true) {
     val bounds = Rect().also(source::getGlobalVisibleRect)
     val prefs = LauncherPrefs(this)
     try {
-        val scaled = asWindow && app.user == Process.myUserHandle() && AppWindows.current?.open(app) == true
+        val scaled = asWindow && app.user == Process.myUserHandle() && AppWindows.current?.open(app, newWindow) == true
         if (!scaled) WindowOpener(this).open(app, asWindow, prefs.windowSize, bounds)
         prefs.recordOpened(app.key)
     } catch (_: RuntimeException) {

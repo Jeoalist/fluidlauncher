@@ -7,10 +7,12 @@ import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.drawable.GradientDrawable
 import android.os.RemoteException
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
@@ -26,6 +28,7 @@ import kotlin.math.hypot
 class AppWindow(
     context: Context,
     val app: AppEntry,
+    private val separateTask: Boolean,
     private val service: IDisplayService,
     private val spec: DisplaySpec,
     initialWidth: Int,
@@ -161,7 +164,7 @@ class AppWindow(
         surface = created
         call {
             displayId = service.createDisplay("pencere-${app.packageName}", displayWidth, displayHeight, spec.dpi, created)
-            service.launch(displayId, app.component.flattenToString())
+            service.launch(displayId, app.component.flattenToString(), separateTask)
         }
     }
 
@@ -249,20 +252,24 @@ class AppWindow(
         y = newY.coerceIn(topLimit, maxTop(parentView))
     }
 
-    /** Top-left grip: the opposite corner stays where it is while the window is resized. */
+    /**
+     * Top-left grip: a tap sends Back to the app, a drag resizes the window while the
+     * opposite corner stays where it is. A filled window only takes the tap.
+     */
     private fun resizeHandle() = TextView(context).apply {
         text = "◤"
         gravity = Gravity.CENTER
         textSize = 11f
         setTextColor(Color.LTGRAY)
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         var downX = 0f
         var downY = 0f
         var startX = 0f
         var startY = 0f
         var startWidth = 0
         var startHeight = 0
+        var resizing = false
         setOnTouchListener { _, event ->
-            if (isFilled) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     onFocus(this@AppWindow)
@@ -272,22 +279,45 @@ class AppWindow(
                     startY = this@AppWindow.y
                     startWidth = windowWidth
                     startHeight = contentHeight
+                    resizing = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val layer = this@AppWindow.parent as View
-                    val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, layer.width)
-                    windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
-                    val minHeight = windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100
-                    val maxHeight = minOf(windowWidth * maxDisplayHeight / spec.width, (startY + startHeight - topLimit).toInt())
-                    contentHeight = (startHeight - (event.rawY - downY).toInt())
-                        .coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
-                    this@AppWindow.x = startX + startWidth - windowWidth
-                    this@AppWindow.y = startY + startHeight - contentHeight
-                    this@AppWindow.applySize()
+                    if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) resizing = true
+                    if (resizing && !isFilled) resizeFromTopLeft(event, downX, downY, startX, startY, startWidth, startHeight)
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> resizeDisplay()
+                MotionEvent.ACTION_UP -> if (!resizing) sendBack() else if (!isFilled) resizeDisplay()
+                MotionEvent.ACTION_CANCEL -> if (resizing && !isFilled) resizeDisplay()
             }
             true
+        }
+    }
+
+    private fun resizeFromTopLeft(
+        event: MotionEvent,
+        downX: Float,
+        downY: Float,
+        startX: Float,
+        startY: Float,
+        startWidth: Int,
+        startHeight: Int,
+    ) {
+        val layer = parent as View
+        val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, layer.width)
+        windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
+        val minHeight = windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100
+        val maxHeight = minOf(windowWidth * maxDisplayHeight / spec.width, (startY + startHeight - topLimit).toInt())
+        contentHeight = (startHeight - (event.rawY - downY).toInt()).coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
+        x = startX + startWidth - windowWidth
+        y = startY + startHeight - contentHeight
+        applySize()
+    }
+
+    private fun sendBack() {
+        if (displayId == NO_DISPLAY) return
+        val now = SystemClock.uptimeMillis()
+        listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP).forEach { action ->
+            val key = KeyEvent(now, now, action, KeyEvent.KEYCODE_BACK, 0, 0, 0, 0, 0, InputDevice.SOURCE_KEYBOARD)
+            call { service.injectKey(displayId, key) }
         }
     }
 

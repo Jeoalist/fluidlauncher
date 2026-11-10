@@ -172,7 +172,9 @@ class SearchActivity : Activity() {
                     if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) main.removeCallbacks(hold)
                 MotionEvent.ACTION_UP -> {
                     main.removeCallbacks(hold)
-                    if (!closed && hypot(event.rawX - downX, event.rawY - downY) <= touchSlop) open(app, icon)
+                    if (!closed && hypot(event.rawX - downX, event.rawY - downY) <= touchSlop) {
+                        open(app, icon, newWindow = false)
+                    }
                 }
                 MotionEvent.ACTION_CANCEL -> main.removeCallbacks(hold)
             }
@@ -209,8 +211,8 @@ class SearchActivity : Activity() {
         else -> NO_MATCH
     }
 
-    private fun open(app: AppEntry, source: View) {
-        launchApp(app, prefs.windowed, source)
+    private fun open(app: AppEntry, source: View, newWindow: Boolean = true) {
+        launchApp(app, prefs.windowed, source, newWindow)
         finish()
     }
 
