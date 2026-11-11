@@ -198,7 +198,7 @@ class MainActivity : Activity() {
         val closeOnHold = Runnable {
             heldToClose = true
             appsButton.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            closeBackgroundApps()
+            closeBackgroundApps(this, keepForeground = false)
         }
         appsButton.setOnTouchListener { view, event ->
             when (event.actionMasked) {
@@ -299,28 +299,6 @@ class MainActivity : Activity() {
     }
 
     /** Closes launchable apps that have no window here, leaving this launcher and the home app. */
-    private fun closeBackgroundApps() {
-        val service = ShizukuBridge.service
-        if (service == null) {
-            Toast.makeText(this, R.string.background_needs_shizuku, Toast.LENGTH_SHORT).show()
-            return
-        }
-        val home = packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
-        val kept = windows.openApps.map { it.packageName }.toSet() + packageName + home?.activityInfo?.packageName
-        val launchable = AppCatalog.apps.map { it.packageName }.toSet()
-        background.execute {
-            val closed = try {
-                service.openPackages().filter { it in launchable && it !in kept }.onEach(service::closePackage).size
-            } catch (_: RemoteException) {
-                0
-            }
-            main.post {
-                val message = if (closed == 0) getString(R.string.background_none) else getString(R.string.background_closed, closed)
-                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     private fun buttonMinX() = (systemBars.left + margin).toFloat()
     private fun buttonMaxX() = (root.width - systemBars.right - margin - appsButton.width).toFloat()
     private fun buttonMinY() = (systemBars.top + margin).toFloat()
@@ -399,9 +377,9 @@ class MainActivity : Activity() {
         }
     }
 
-    private companion object {
+    companion object {
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
-        private const val CLOSE_BACKGROUND_HOLD_MS = 1500L
+        const val CLOSE_BACKGROUND_HOLD_MS = 1500L
         private const val SETTINGS_HOLD_MS = 1500L
         private const val PAN_ZONE_HEIGHT_DP = 200
         private const val PAN_ZONE_WIDTH_RATIO = 0.6f

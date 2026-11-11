@@ -2,10 +2,12 @@ package dev.jeo.pencere
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.provider.Settings
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -46,7 +48,20 @@ object FloatingAppsButton {
             x = ((bounds.width() - size) * prefs.floatingX).toInt()
             y = ((bounds.height() - size) * prefs.floatingY).toInt()
         }
-        val button = ImageView(app).apply {
+        val button = object : ImageView(app) {
+            /** Keeps the saved spot, as a share of the screen, when the screen rotates. */
+            override fun onConfigurationChanged(newConfig: Configuration) {
+                super.onConfigurationChanged(newConfig)
+                post {
+                    if (view !== this) return@post
+                    val screen = windowManager.currentWindowMetrics.bounds
+                    val shift = (size - params.width) / 2
+                    params.x = ((screen.width() - size) * prefs.floatingX).toInt() + shift
+                    params.y = ((screen.height() - size) * prefs.floatingY).toInt() + shift
+                    windowManager.updateViewLayout(this, params)
+                }
+            }
+        }.apply {
             setBackgroundResource(R.drawable.fab)
             setImageResource(R.drawable.ic_grid)
             setPadding(padding, padding, padding, padding)
@@ -108,6 +123,12 @@ object FloatingAppsButton {
         var startX = 0
         var startY = 0
         var dragging = false
+        var heldToClose = false
+        val closeOnHold = Runnable {
+            heldToClose = true
+            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            closeBackgroundApps(button.context, keepForeground = true)
+        }
         button.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -117,9 +138,14 @@ object FloatingAppsButton {
                     startX = params.x
                     startY = params.y
                     dragging = false
+                    heldToClose = false
+                    if (prefs.closeBackgroundOnHold) button.postDelayed(closeOnHold, MainActivity.CLOSE_BACKGROUND_HOLD_MS)
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) dragging = true
+                    if (!heldToClose && hypot(event.rawX - downX, event.rawY - downY) > touchSlop) {
+                        dragging = true
+                        button.removeCallbacks(closeOnHold)
+                    }
                     if (dragging) {
                         val bounds = windowManager.currentWindowMetrics.bounds
                         params.x = (startX + (event.rawX - downX).toInt()).coerceIn(0, bounds.width() - params.width)
@@ -127,11 +153,15 @@ object FloatingAppsButton {
                         windowManager.updateViewLayout(button, params)
                     }
                 }
-                MotionEvent.ACTION_UP -> if (dragging) {
+                MotionEvent.ACTION_CANCEL -> button.removeCallbacks(closeOnHold)
+                MotionEvent.ACTION_UP -> if (heldToClose) {
+                    Unit
+                } else if (dragging) {
                     val bounds = windowManager.currentWindowMetrics.bounds
                     prefs.floatingX = params.x / (bounds.width() - params.width).toFloat()
                     prefs.floatingY = params.y / (bounds.height() - params.height).toFloat()
                 } else {
+                    button.removeCallbacks(closeOnHold)
                     openLauncherApps(button)
                 }
             }
