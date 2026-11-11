@@ -2,7 +2,6 @@ package dev.jeo.pencere
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.content.Intent
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.provider.Settings
@@ -20,6 +19,7 @@ import kotlin.math.hypot
  */
 object FloatingAppsButton {
     private var view: View? = null
+    private var shrink: Runnable? = null
 
     /** True while the launcher is covered by another app. */
     val isShown get() = view != null
@@ -52,13 +52,44 @@ object FloatingAppsButton {
             setPadding(padding, padding, padding, padding)
             contentDescription = app.getString(R.string.all_apps)
         }
-        attachTouch(button, params, windowManager, prefs)
+        val small = (SMALL_SIZE_DP * density).toInt()
+        val smallPadding = padding * small / size
+        val shrinkNow = Runnable { resize(button, params, windowManager, small, smallPadding, IDLE_ALPHA) }
+        attachTouch(button, params, windowManager, prefs) {
+            resize(button, params, windowManager, size, padding, 1f)
+            button.removeCallbacks(shrinkNow)
+            button.postDelayed(shrinkNow, IDLE_SHRINK_MS)
+        }
         windowManager.addView(button, params)
         view = button
+        shrink = shrinkNow
+        button.postDelayed(shrinkNow, IDLE_SHRINK_MS)
+    }
+
+    /** Changes the button's size around its center, so it stays where it was. */
+    private fun resize(
+        button: View,
+        params: WindowManager.LayoutParams,
+        windowManager: WindowManager,
+        size: Int,
+        padding: Int,
+        alpha: Float,
+    ) {
+        if (params.width == size) return
+        val shift = (params.width - size) / 2
+        params.x += shift
+        params.y += shift
+        params.width = size
+        params.height = size
+        button.setPadding(padding, padding, padding, padding)
+        button.alpha = alpha
+        windowManager.updateViewLayout(button, params)
     }
 
     fun hide(context: Context) {
         val current = view ?: return
+        shrink?.let(current::removeCallbacks)
+        shrink = null
         context.applicationContext.getSystemService(WindowManager::class.java).removeView(current)
         view = null
     }
@@ -69,6 +100,7 @@ object FloatingAppsButton {
         params: WindowManager.LayoutParams,
         windowManager: WindowManager,
         prefs: LauncherPrefs,
+        onTouched: () -> Unit,
     ) {
         val touchSlop = ViewConfiguration.get(button.context).scaledTouchSlop
         var downX = 0f
@@ -79,6 +111,7 @@ object FloatingAppsButton {
         button.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    onTouched()
                     downX = event.rawX
                     downY = event.rawY
                     startX = params.x
@@ -99,7 +132,7 @@ object FloatingAppsButton {
                     prefs.floatingX = params.x / (bounds.width() - params.width).toFloat()
                     prefs.floatingY = params.y / (bounds.height() - params.height).toFloat()
                 } else {
-                    openLauncherApps(button, prefs)
+                    openLauncherApps(button)
                 }
             }
             true
@@ -107,15 +140,15 @@ object FloatingAppsButton {
     }
 
     /** Opens the search, or the drawer if chosen in the settings, over the full-screen app. */
-    private fun openLauncherApps(button: View, prefs: LauncherPrefs) {
+    private fun openLauncherApps(button: View) {
         val location = IntArray(2).also(button::getLocationOnScreen)
         val bounds = Rect(location[0], location[1], location[0] + button.width, location[1] + button.height)
-        val target = if (prefs.appsButtonOpensDrawer) DrawerActivity::class.java else SearchActivity::class.java
-        button.context.startActivity(
-            Intent(button.context, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).apply { sourceBounds = bounds },
-        )
+        AppsPanel.toggle(button.context, bounds, newTask = true)
     }
 
     private const val SIZE_DP = 56
+    private const val SMALL_SIZE_DP = 30
+    private const val IDLE_ALPHA = 0.6f
+    private const val IDLE_SHRINK_MS = 10_000L
     private const val PADDING_DP = 15
 }

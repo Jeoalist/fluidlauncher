@@ -46,6 +46,7 @@ class SearchActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppsPanel.onShown(this)
         setContentView(R.layout.activity_search)
         root = findViewById(R.id.root)
         panel = findViewById(R.id.panel)
@@ -86,6 +87,7 @@ class SearchActivity : Activity() {
     }
 
     override fun onDestroy() {
+        AppsPanel.onGone(this)
         AppCatalog.removeListener(onCatalogChanged)
         background.shutdown()
         super.onDestroy()

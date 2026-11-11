@@ -192,8 +192,7 @@ class MainActivity : Activity() {
         var startY = 0f
         appsButton.setOnClickListener { button ->
             val bounds = Rect().also(button::getGlobalVisibleRect)
-            val target = if (prefs.appsButtonOpensDrawer) DrawerActivity::class.java else SearchActivity::class.java
-            startActivity(Intent(this, target).apply { sourceBounds = bounds })
+            AppsPanel.toggle(this, bounds, newTask = false)
         }
         var heldToClose = false
         val closeOnHold = Runnable {

@@ -24,6 +24,7 @@ class DrawerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppsPanel.onShown(this)
         setContentView(R.layout.activity_drawer)
         search = findViewById(R.id.search)
         val grid = findViewById<GridView>(R.id.grid)
@@ -54,6 +55,7 @@ class DrawerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        AppsPanel.onGone(this)
         AppCatalog.removeListener(onCatalogChanged)
         super.onDestroy()
     }
