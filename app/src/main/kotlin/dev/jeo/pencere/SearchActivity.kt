@@ -5,6 +5,7 @@ import android.app.Activity
 import android.graphics.Insets
 import android.graphics.Rect
 import android.os.Bundle
+import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
 import android.os.RemoteException
@@ -38,6 +39,9 @@ class SearchActivity : Activity() {
     private var slotWidth = 0
     private var iconPadding = 0
     private var results: List<AppEntry> = emptyList()
+
+    /** Running apps outside the launcher's windows, such as ones in real full screen. */
+    private var fullscreenKeys: Set<String> = emptySet()
     private val onCatalogChanged = { showResults() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -106,7 +110,7 @@ class SearchActivity : Activity() {
         if (query.isEmpty()) {
             loadOpenApps()
         } else {
-            render(matches(query), holdToClose = false)
+            render(matchApps(AppCatalog.apps, query), holdToClose = false)
         }
     }
 
@@ -123,7 +127,12 @@ class SearchActivity : Activity() {
             }
             val others = running?.mapNotNull { pkg -> catalog.firstOrNull { it.packageName == pkg } }
                 ?: prefs.recentKeys.mapNotNull { key -> catalog.firstOrNull { it.key == key } }
-            main.post { if (!isDestroyed && search.text.isBlank()) render((windows + others).distinctBy { it.key }, true) }
+            main.post {
+                if (!isDestroyed && search.text.isBlank()) {
+                    if (running != null) fullscreenKeys = others.map { it.key }.toSet() - windows.map { it.key }.toSet()
+                    render((windows + others).distinctBy { it.key }, true)
+                }
+            }
         }
     }
 
@@ -173,7 +182,7 @@ class SearchActivity : Activity() {
                 MotionEvent.ACTION_UP -> {
                     main.removeCallbacks(hold)
                     if (!closed && hypot(event.rawX - downX, event.rawY - downY) <= touchSlop) {
-                        open(app, icon, newWindow = false)
+                        if (app.key in fullscreenKeys) switchTo(app, icon) else open(app, icon, newWindow = false)
                     }
                 }
                 MotionEvent.ACTION_CANCEL -> main.removeCallbacks(hold)
@@ -195,20 +204,14 @@ class SearchActivity : Activity() {
         }
     }
 
-    private fun matches(query: String): List<AppEntry> {
-        val needle = searchKey(query)
-        return AppCatalog.apps
-            .map { it to matchRank(searchKey(it.label), needle) }
-            .filter { it.second != NO_MATCH }
-            .sortedBy { it.second }
-            .map { it.first }
-    }
-
-    private fun matchRank(label: String, needle: String): Int = when {
-        label.startsWith(needle) -> 0
-        " $needle" in label -> 1
-        needle in label -> 2
-        else -> NO_MATCH
+    /** Brings a running full-screen app's own task forward, keeping it in full screen. */
+    private fun switchTo(app: AppEntry, source: View) {
+        try {
+            WindowOpener(this).open(app, false, prefs.windowSize, Rect().also(source::getGlobalVisibleRect))
+        } catch (_: RuntimeException) {
+            Toast.makeText(this, R.string.open_failed, Toast.LENGTH_SHORT).show()
+        }
+        finish()
     }
 
     private fun open(app: AppEntry, source: View, newWindow: Boolean = true) {
@@ -220,11 +223,5 @@ class SearchActivity : Activity() {
         const val SLOTS_ACROSS = 4
         const val PANEL_WIDTH_DP = 280
         const val CLOSE_HOLD_MS = 2000L
-        const val NO_MATCH = Int.MAX_VALUE
-        val TURKISH_FOLDS = mapOf('ç' to 'c', 'ğ' to 'g', 'ı' to 'i', 'ö' to 'o', 'ş' to 's', 'ü' to 'u')
-
-        /** Lets "cicek" match "Çiçeksepeti". */
-        fun searchKey(text: String): String =
-            text.lowercase(TURKISH).map { TURKISH_FOLDS[it] ?: it }.joinToString("")
     }
 }

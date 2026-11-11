@@ -30,6 +30,9 @@ fun Activity.launchApp(app: AppEntry, asWindow: Boolean, source: View, newWindow
     val prefs = LauncherPrefs(this)
     try {
         val scaled = asWindow && app.user == Process.myUserHandle() && AppWindows.current?.open(app, newWindow) == true
+        if (scaled && FloatingAppsButton.isShown) {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
         if (!scaled) WindowOpener(this).open(app, asWindow, prefs.windowSize, bounds)
         prefs.recordOpened(app.key)
     } catch (_: RuntimeException) {

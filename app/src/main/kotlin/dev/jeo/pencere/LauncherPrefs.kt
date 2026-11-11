@@ -30,6 +30,24 @@ class LauncherPrefs(context: Context) {
     fun setWindowAction(gesture: WindowGesture, action: WindowAction) =
         prefs.edit().putString(gesture.key, action.name).apply()
 
+    /** False opens the small search popup, the default; true opens the full app drawer. */
+    var appsButtonOpensDrawer: Boolean
+        get() = prefs.getBoolean(KEY_APPS_BUTTON_DRAWER, false)
+        set(value) = prefs.edit().putBoolean(KEY_APPS_BUTTON_DRAWER, value).apply()
+
+    /** Whether the apps button floats over other apps while the launcher is behind them. */
+    var floatingButton: Boolean
+        get() = prefs.getBoolean(KEY_FLOATING_BUTTON, true)
+        set(value) = prefs.edit().putBoolean(KEY_FLOATING_BUTTON, value).apply()
+
+    var floatingX: Float
+        get() = prefs.getFloat(KEY_FLOATING_X, 0.97f)
+        set(value) = prefs.edit().putFloat(KEY_FLOATING_X, value).apply()
+
+    var floatingY: Float
+        get() = prefs.getFloat(KEY_FLOATING_Y, 0.45f)
+        set(value) = prefs.edit().putFloat(KEY_FLOATING_Y, value).apply()
+
     var closeBackgroundOnHold: Boolean
         get() = prefs.getBoolean(KEY_CLOSE_BACKGROUND_ON_HOLD, true)
         set(value) = prefs.edit().putBoolean(KEY_CLOSE_BACKGROUND_ON_HOLD, value).apply()
@@ -50,6 +68,10 @@ class LauncherPrefs(context: Context) {
         const val KEY_BUTTON_Y = "button_y"
         const val KEY_RECENTS = "recent_keys"
         const val KEY_CLOSE_BACKGROUND_ON_HOLD = "close_background_on_hold"
+        const val KEY_APPS_BUTTON_DRAWER = "apps_button_drawer"
+        const val KEY_FLOATING_BUTTON = "floating_button"
+        const val KEY_FLOATING_X = "floating_x"
+        const val KEY_FLOATING_Y = "floating_y"
         const val SEPARATOR = "|"
         const val MAX_RECENTS = 7
     }

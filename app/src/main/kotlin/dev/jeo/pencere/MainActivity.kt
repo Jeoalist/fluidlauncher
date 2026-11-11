@@ -158,6 +158,17 @@ class MainActivity : Activity() {
         applySystemBars(windows.isFullscreenVisible)
     }
 
+    override fun onStart() {
+        super.onStart()
+        FloatingAppsButton.hide(this)
+    }
+
+    /** Something covers the launcher, such as an app in real full screen. */
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) FloatingAppsButton.show(this)
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) applySystemBars(windows.isFullscreenVisible)
@@ -181,7 +192,8 @@ class MainActivity : Activity() {
         var startY = 0f
         appsButton.setOnClickListener { button ->
             val bounds = Rect().also(button::getGlobalVisibleRect)
-            startActivity(Intent(this, SearchActivity::class.java).apply { sourceBounds = bounds })
+            val target = if (prefs.appsButtonOpensDrawer) DrawerActivity::class.java else SearchActivity::class.java
+            startActivity(Intent(this, target).apply { sourceBounds = bounds })
         }
         var heldToClose = false
         val closeOnHold = Runnable {
@@ -389,11 +401,11 @@ class MainActivity : Activity() {
     }
 
     private companion object {
-        const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
-        const val CLOSE_BACKGROUND_HOLD_MS = 1500L
-        const val SETTINGS_HOLD_MS = 1500L
-        const val PAN_ZONE_HEIGHT_DP = 200
-        const val PAN_ZONE_WIDTH_RATIO = 0.6f
-        const val PAN_DIRECTION_RATIO = 1.5f
+        private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        private const val CLOSE_BACKGROUND_HOLD_MS = 1500L
+        private const val SETTINGS_HOLD_MS = 1500L
+        private const val PAN_ZONE_HEIGHT_DP = 200
+        private const val PAN_ZONE_WIDTH_RATIO = 0.6f
+        private const val PAN_DIRECTION_RATIO = 1.5f
     }
 }

@@ -3,6 +3,7 @@ package dev.jeo.pencere
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
@@ -18,6 +19,13 @@ class SettingsActivity : Activity() {
     private lateinit var list: LinearLayout
     private var padding = 0
 
+    override fun onResume() {
+        super.onResume()
+        // The launcher is behind this screen, but its floating button would only be in the way here.
+        FloatingAppsButton.hide(this)
+        render()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         padding = (16 * resources.displayMetrics.density).toInt()
@@ -29,7 +37,6 @@ class SettingsActivity : Activity() {
             insets
         }
         setContentView(scroll)
-        render()
     }
 
     private fun render() {
@@ -49,6 +56,26 @@ class SettingsActivity : Activity() {
         addRow(getString(R.string.setting_window_size), getString(size.labelRes)) {
             choose(R.string.setting_window_size, WindowSize.entries.map { getString(it.labelRes) }, size.ordinal) {
                 prefs.windowSize = WindowSize.entries[it]
+            }
+        }
+        val opensDrawer = prefs.appsButtonOpensDrawer
+        val tapChoices = listOf(R.string.apps_button_search, R.string.apps_button_drawer)
+        addRow(getString(R.string.setting_button_tap), getString(tapChoices[if (opensDrawer) 1 else 0])) {
+            choose(R.string.setting_button_tap, tapChoices.map(::getString), if (opensDrawer) 1 else 0) {
+                prefs.appsButtonOpensDrawer = it == 1
+            }
+        }
+        val floatingValue = when {
+            !FloatingAppsButton.canShow(this) -> R.string.floating_needs_permission
+            prefs.floatingButton -> R.string.on
+            else -> R.string.off
+        }
+        addRow(getString(R.string.setting_floating_button), getString(floatingValue)) {
+            if (FloatingAppsButton.canShow(this)) {
+                prefs.floatingButton = !prefs.floatingButton
+                render()
+            } else {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             }
         }
         val closeOnHold = prefs.closeBackgroundOnHold

@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <intent>
@@ -54,6 +55,16 @@
             android:taskAffinity="dev.jeo.pencere.search"
             android:theme="@style/Theme.Pencere.Search"
             android:windowSoftInputMode="adjustResize|stateAlwaysVisible"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density" />
+        <activity
+            android:name=".DrawerActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity="dev.jeo.pencere.drawer"
+            android:theme="@style/Theme.Pencere.Search"
+            android:windowSoftInputMode="adjustResize|stateHidden"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout|uiMode|density" />
         <activity
             android:name=".SettingsActivity"

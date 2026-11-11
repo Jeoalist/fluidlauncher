@@ -41,4 +41,11 @@
     <string name="open_settings_question">Ayarlar açılsın mı?</string>
     <string name="open">Aç</string>
     <string name="cancel">Vazgeç</string>
+    <string name="setting_button_tap">Uygulama düğmesine dokununca</string>
+    <string name="apps_button_search">Arama penceresi</string>
+    <string name="apps_button_drawer">Uygulama çekmecesi</string>
+    <string name="setting_floating_button">Tam ekran uygulamalarda uygulama düğmesi</string>
+    <string name="floating_needs_permission">Kapalı: diğer uygulamaların üzerinde gösterme izni gerekli</string>
+    <string name="on">Açık</string>
+    <string name="off">Kapalı</string>
 </resources>
