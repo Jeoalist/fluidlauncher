@@ -63,7 +63,7 @@ class SearchActivity : Activity() {
 
         root.setOnClickListener { finish() }
         root.setOnApplyWindowInsetsListener { _, insets ->
-            bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+            bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
             placePanel()
             insets
         }
@@ -104,7 +104,9 @@ class SearchActivity : Activity() {
         val bottom = root.height - bars.bottom - margin
         val below = anchor.bottom + gap
         val above = anchor.top - gap - panel.height
-        panel.x = (anchor.centerX() - panel.width / 2).coerceIn(margin, root.width - margin - panel.width).toFloat()
+        val minX = bars.left + margin
+        val maxX = (root.width - bars.right - margin - panel.width).coerceAtLeast(minX)
+        panel.x = (anchor.centerX() - panel.width / 2).coerceIn(minX, maxX).toFloat()
         val preferred = if (below + panel.height <= bottom) below else above
         panel.y = preferred.coerceAtMost(bottom - panel.height).coerceAtLeast(top).toFloat()
         panel.visibility = View.VISIBLE

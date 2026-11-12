@@ -47,14 +47,43 @@ class ThemeEditorActivity : Activity() {
         super.onCreate(savedInstanceState)
         padding = (16 * resources.displayMetrics.density).toInt()
         colors = startingColors()
+        setUpLayout()
+    }
+
+    /** Rotating keeps the colours being edited; only the arrangement changes. */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        setUpLayout()
+    }
+
+    /** Where the title and preview go: on top of the list, or beside it on a wide screen. */
+    private lateinit var previewHost: LinearLayout
+
+    /**
+     * A tall screen scrolls everything in one column. A wide one keeps the preview on the left,
+     * always in sight, and scrolls the name, colours and buttons on the right.
+     */
+    private fun setUpLayout() {
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(list) }
-        scroll.setOnApplyWindowInsetsListener { view, insets ->
+        val wide = resources.configuration.screenWidthDp > resources.configuration.screenHeightDp
+        val root: View = if (wide) {
+            previewHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(previewHost, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+                addView(scroll, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+            }
+        } else {
+            previewHost = list
+            scroll
+        }
+        root.setOnApplyWindowInsetsListener { view, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
-        setContentView(scroll)
+        setContentView(root)
         build()
     }
 
@@ -86,9 +115,15 @@ class ThemeEditorActivity : Activity() {
 
     private fun build() {
         list.removeAllViews()
-        addText(getString(R.string.theme_editor_title), 24f, padding * 2)
+        if (previewHost !== list) previewHost.removeAllViews()
+        swatches.clear()
+        previewHost.addView(TextView(this).apply {
+            text = getString(R.string.theme_editor_title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            setPadding(padding, padding * 2, padding, padding / 2)
+        })
         preview = Preview()
-        list.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (190 * resources.displayMetrics.density).toInt()).apply {
+        previewHost.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (190 * resources.displayMetrics.density).toInt()).apply {
             setMargins(padding, padding / 2, padding, padding)
         })
         name = EditText(this).apply {

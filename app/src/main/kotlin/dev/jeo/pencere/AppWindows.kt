@@ -41,6 +41,11 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         set(value) {
             field = value
             restyle()
+            // A new title bar height changes every window's size; put them back in order.
+            layer.post {
+                windows.forEach(::keepOnPage)
+                if (tiling) retileAll() else windows.toList().forEach { if (!it.isFilled) resolve(it) }
+            }
         }
 
     /**
@@ -69,8 +74,13 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         set(value) {
             if (field == value) return
             field = value
+            windows.forEach { it.keepInArea(topLimit, value, leftInset, rightInset) }
             if (tiling) retileAll()
         }
+
+    /** Room kept free on either side for a camera cutout or side bars. */
+    private var leftInset = 0f
+    private var rightInset = 0f
 
     private val gap get() = 6 * layer.resources.displayMetrics.density
     private val areaBottom get() = if (bottomLimit > 0f) bottomLimit else layer.height.toFloat()
@@ -89,7 +99,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
             window.x = x
             window.y = y
             // While tiling, the window floats freely until dropped onto another one.
-            if (!tiling) resolve(window)
+            if (!tiling) resolve(window, dragging = true)
         }
 
         override fun dropped(window: AppWindow) {
@@ -111,7 +121,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         }
 
         override fun resized(window: AppWindow) {
-            if (tiling) retile(pageOf(window)) else resolve(window)
+            if (tiling) retile(pageOf(window)) else resolve(window, dragging = true)
         }
 
         override val canResize get() = !tiling
@@ -122,9 +132,9 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
      * stays on screen, and passes the push on to the windows those run into. A window that cannot
      * move further blocks: then [mover] itself is put back just short of it.
      */
-    private fun resolve(mover: AppWindow) {
+    private fun resolve(mover: AppWindow, dragging: Boolean = false) {
         val page = pageOf(mover)
-        val pageLeft = page * layer.width - offset
+        val pageLeft = page * layer.width - offset + leftInset
         val others = arrangedOn(page).filter { it !== mover }
         val queue = ArrayDeque(listOf(mover))
         val pushed = HashSet<AppWindow>()
@@ -133,7 +143,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
             val pusher = queue.removeFirst()
             for (other in others) {
                 if (other === pusher || other === mover || !overlaps(pusher, other)) continue
-                if (pushOut(other, pusher, pageLeft)) {
+                if (pushOut(other, pusher, pageLeft, awayOnly = dragging)) {
                     pushed += other
                     queue.addLast(other)
                 }
@@ -141,7 +151,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         }
         // Whatever could not make room stops the mover instead.
         for (other in others) {
-            if (overlaps(mover, other)) pushOut(mover, other, pageLeft, force = true)
+            if (overlaps(mover, other)) pushOut(mover, other, pageLeft, force = true, awayOnly = dragging)
         }
     }
 
@@ -152,35 +162,41 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
      * Moves [window] clear of [blocker] the shortest way that keeps it on its desktop. Returns
      * false when no way fits; with [force] it then takes the shortest way regardless.
      */
-    private fun pushOut(window: AppWindow, blocker: AppWindow, pageLeft: Float, force: Boolean = false): Boolean {
+    private fun pushOut(window: AppWindow, blocker: AppWindow, pageLeft: Float, force: Boolean = false, awayOnly: Boolean = true): Boolean {
         val minX = pageLeft
-        val maxX = pageLeft + layer.width - window.frameWidth
+        val maxX = (pageLeft - leftInset + layer.width - rightInset - window.frameWidth).coerceAtLeast(minX)
         val minY = topLimit
         val maxY = (areaBottom - window.frameHeight).coerceAtLeast(topLimit)
-        // Only away from the other window: a window never jumps over the one pushing it.
+        // While dragging, only away from the other window: a window never jumps over the finger's
+        // window. Otherwise, as after a rotation, any side that has room will do, nearest first.
         val leftOf = window.x + window.frameWidth / 2f <= blocker.x + blocker.frameWidth / 2f
         val above = window.y + window.frameHeight / 2f <= blocker.y + blocker.frameHeight / 2f
-        val moves = listOf(
-            (if (leftOf) blocker.x - window.frameWidth - window.x else blocker.x + blocker.frameWidth - window.x) to 0f,
-            0f to (if (above) blocker.y - window.frameHeight - window.y else blocker.y + blocker.frameHeight - window.y),
-        ).sortedBy { (dx, dy) -> abs(dx) + abs(dy) }
+        val toLeft = blocker.x - window.frameWidth - window.x
+        val toRight = blocker.x + blocker.frameWidth - window.x
+        val toTop = blocker.y - window.frameHeight - window.y
+        val toBottom = blocker.y + blocker.frameHeight - window.y
+        val away = listOf((if (leftOf) toLeft else toRight) to 0f, 0f to (if (above) toTop else toBottom))
+        val all = listOf(toLeft to 0f, toRight to 0f, 0f to toTop, 0f to toBottom)
+        val moves = (if (awayOnly) away else all).sortedBy { (dx, dy) -> abs(dx) + abs(dy) }
         val fitting = moves.firstOrNull { (dx, dy) ->
             window.x + dx in minX..maxX && window.y + dy in minY..maxY
         } ?: if (force) moves.first() else return false
-        window.x += fitting.first
-        window.y += fitting.second
+        // Even a forced move never leaves the desktop or slides under the desktop picker.
+        window.x = (window.x + fitting.first).coerceIn(minX, maxX)
+        window.y = (window.y + fitting.second).coerceIn(minY, maxY)
         return true
     }
 
     /** A free spot on [page] for a new window, scanning from the top; null when there is none. */
     private fun freeSpot(window: AppWindow, page: Int): Pair<Float, Float>? {
-        val pageLeft = page * layer.width - offset
+        val pageLeft = page * layer.width - offset + leftInset
+        val pageRight = page * layer.width - offset + layer.width - rightInset
         val others = arrangedOn(page).filter { it !== window }
         val step = 24 * layer.resources.displayMetrics.density
         var y = topLimit
         while (y + window.frameHeight <= areaBottom) {
             var x = pageLeft
-            while (x + window.frameWidth <= pageLeft + layer.width) {
+            while (x + window.frameWidth <= pageRight) {
                 val free = others.none {
                     x < it.x + it.frameWidth && it.x < x + window.frameWidth && y < it.y + it.frameHeight && it.y < y + window.frameHeight
                 }
@@ -202,11 +218,13 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         if (tiles.isEmpty() || layer.width == 0) return
         val count = tiles.size
         val tall = layer.height >= layer.width
-        val columns = if (tall) (if (count <= 2) 1 else 2) else minOf(count, 3)
-        val rows = (count + columns - 1) / columns
-        val left = page * layer.width - offset + gap
+        // A wide screen is short: windows go side by side in one row, a second row only past
+        // three, so no tile gets too flat for its app.
+        val rows = if (tall) (if (count <= 2) count else (count + 1) / 2) else (if (count <= 3) 1 else 2)
+        val columns = (count + rows - 1) / rows
+        val left = page * layer.width - offset + leftInset + gap
         val top = topLimit + gap
-        val width = layer.width - gap * 2
+        val width = layer.width - leftInset - rightInset - gap * 2
         val height = areaBottom - topLimit - gap * 2
         val rowHeight = (height - gap * (rows - 1)) / rows
         tiles.forEachIndexed { i, window ->
@@ -248,13 +266,14 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         }
         val target = if (firstDesktopIsHome && currentDesktop == 1) 2 else currentDesktop
         val context = layer.context
-        val placement = Placement.next(context, prefs, cascade)
+        val placement = Placement.next(context, prefs, cascade, topLimit, areaBottom, leftInset, rightInset)
         val window = AppWindow(
             context, app, existing != null, service, placement.spec, placement.width, placement.maxContentHeight,
             ::focus, ::close, ::updateFullscreen, ::openFullscreen,
         )
         window.arranger = arranger
         layer.addView(window)
+        window.keepInArea(topLimit, bottomLimit, leftInset, rightInset)
         active = window
         restyle()
         // Positions are relative to the desktop on screen, so another desktop is a page width away.
@@ -286,10 +305,30 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     fun isOnContent(screenX: Float, screenY: Float) = windows.any { it.isOnContent(screenX, screenY) }
 
-    fun keepInArea(top: Float) {
+    /**
+     * The room windows have: below [top], and clear of [left] and [right] for a camera cutout
+     * or side bars. Called on every layout, so the windows are only rearranged on a change.
+     */
+    fun keepInArea(top: Float, left: Float = leftInset, right: Float = rightInset) {
+        if (top == topLimit && left == leftInset && right == rightInset) return
         topLimit = top
-        windows.forEach { it.keepInArea(top) }
+        leftInset = left
+        rightInset = right
+        windows.forEach {
+            it.keepInArea(top, bottomLimit, left, right)
+            keepOnPage(it)
+        }
         if (tiling) retileAll()
+    }
+
+    /** Puts a window back inside its own desktop, between the side insets. */
+    private fun keepOnPage(window: AppWindow) {
+        if (window.isFilled || layer.width == 0) return
+        val page = pageOf(window)
+        val pageLeft = page * layer.width - offset + leftInset
+        val maxX = (pageLeft - leftInset + layer.width - rightInset - window.frameWidth).coerceAtLeast(pageLeft)
+        val newX = window.x.coerceIn(pageLeft, maxX)
+        if (newX != window.x) window.x = newX
     }
 
     fun beginPan() {
@@ -350,7 +389,10 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         offset *= scaleX
         val last = lastPageOffset()
         onScrolled(if (last > 0f) offset / last else 0f)
-        windows.forEach { it.scaleForRotation(scaleX, scaleY) }
+        windows.forEach {
+            it.scaleForRotation(scaleX, scaleY)
+            keepOnPage(it)
+        }
         if (tiling) retileAll() else windows.toList().forEach { if (!it.isFilled) resolve(it) }
     }
 
@@ -418,21 +460,43 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val y: Float,
     ) {
         companion object {
-            fun next(context: Context, prefs: LauncherPrefs, cascade: Int): Placement {
+            /**
+             * [top], [bottom], [left] and [right] bound the free room: the status bar, the desktop
+             * picker (0 for the screen's bottom) and any cutout or side bars.
+             */
+            fun next(
+                context: Context,
+                prefs: LauncherPrefs,
+                cascade: Int,
+                top: Float = 0f,
+                bottom: Float = 0f,
+                left: Float = 0f,
+                right: Float = 0f,
+            ): Placement {
                 val bounds = context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
+                val density = context.resources.displayMetrics.density
                 val dpi = context.resources.displayMetrics.densityDpi
                 // Always portrait, even when the launcher is rotated.
                 val phoneWidth = minOf(bounds.width(), bounds.height())
                 val phoneHeight = maxOf(bounds.width(), bounds.height())
                 // Two thirds of the panel at two thirds of the density: identical layout, less GPU work.
                 val spec = AppWindow.DisplaySpec(even(phoneWidth * 2 / 3), even(phoneHeight * 2 / 3), dpi * 2 / 3)
-                val step = bounds.width() * CASCADE_STEP
-                val top = bounds.height() / 8f + cascade * step
-                // Keeps the resize corner on screen, which matters in landscape.
-                val maxContentHeight = (bounds.height() - top).toInt() - bounds.height() / 8
-                // In landscape the portrait window is shrunk evenly to fit, so the app keeps its shape.
+                val areaTop = maxOf(top, bounds.height() / 16f)
+                val areaBottom = if (bottom > 0f) bottom else bounds.height().toFloat()
+                // Each new window steps a little down and right, in steps from its own axis.
+                val stepX = bounds.width() * CASCADE_STEP
+                val stepY = (areaBottom - areaTop) * CASCADE_STEP
+                val windowTop = areaTop + cascade * stepY
+                // Room for the whole window below its top, title bar included.
+                val maxContentHeight = (areaBottom - windowTop - TITLE_ROOM_DP * density).toInt()
+                // In landscape the portrait window is shrunk evenly to fit, so the app keeps its shape,
+                // but never below a width its title bar and buttons fit in.
+                val minWidth = (MIN_PLACE_WIDTH_DP * density).toInt()
                 val width = minOf((phoneWidth * prefs.windowSize.scale).toInt(), maxContentHeight * spec.width / spec.height)
-                return Placement(spec, width, maxContentHeight, (bounds.width() - width) / 2f + cascade * step, top)
+                    .coerceAtLeast(minWidth)
+                val usable = bounds.width() - left - right
+                val x = (left + (usable - width) / 2f + cascade * stepX).coerceIn(left, (bounds.width() - right - width).coerceAtLeast(left))
+                return Placement(spec, width, maxContentHeight.coerceAtLeast(minWidth / 2), x, windowTop)
             }
 
             private fun even(value: Int) = value and 1.inv()
@@ -443,6 +507,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         const val CASCADE_LENGTH = 5
         const val DESKTOP_COUNT = 5
         private const val CASCADE_STEP = 0.05f
+        private const val TITLE_ROOM_DP = 40
+        private const val MIN_PLACE_WIDTH_DP = 160
         private const val PAGE_TURN_THRESHOLD = 0.15f
         private const val PAGE_TURN_MS = 220L
         private const val TASK_CLEANUP_MS = 200L

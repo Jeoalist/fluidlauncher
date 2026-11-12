@@ -83,6 +83,11 @@ class TutorialOverlay(
 
     private var topInset = 0
     private var bottomInset = 0
+    private var leftInset = 0
+    private var rightInset = 0
+
+    /** On a wide screen the card sits on the left and the practice area beside it. */
+    private val wide get() = width > height
     private var downX = 0f
     private var downY = 0f
     private val holdOnDesktop = Runnable { if (step == Step.Settings) complete() }
@@ -97,11 +102,18 @@ class TutorialOverlay(
         setOnApplyWindowInsetsListener { _, insets ->
             val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             topInset = bars.top
+            leftInset = bars.left
+            rightInset = bars.right
             bottomInset = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.mandatorySystemGestures()).bottom
             requestLayout()
             insets
         }
-        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> if (!demo.placed) post(::render) }
+        addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            val resized = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
+            // After a rotation the practice window starts over in the new practice area.
+            if (resized && demo.placed && demo.visibility == View.VISIBLE) post { demo.reset() }
+            if (!demo.placed) post(::render)
+        }
         // The card grows with its text; the practice window must stay below it.
         card.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (demo.visibility == View.VISIBLE && demo.y < areaTop()) demo.y = areaTop()
@@ -110,7 +122,7 @@ class TutorialOverlay(
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         val margin = (MARGIN_DP * density).toInt()
-        card.layout(margin, topInset + margin, right - left - margin, topInset + margin + card.measuredHeight)
+        card.layout(leftInset + margin, topInset + margin, leftInset + margin + card.measuredWidth, topInset + margin + card.measuredHeight)
         demo.layout(0, 0, demo.measuredWidth, demo.measuredHeight)
     }
 
@@ -118,7 +130,7 @@ class TutorialOverlay(
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
         val margin = (MARGIN_DP * density).toInt()
         card.measure(
-            MeasureSpec.makeMeasureSpec(measuredWidth - margin * 2, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(cardWidth(measuredWidth, measuredHeight, margin), MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
         )
         demo.measure(
@@ -127,8 +139,17 @@ class TutorialOverlay(
         )
     }
 
-    /** The practice area starts below the card, so the window never hides the instructions. */
-    private fun areaTop() = card.bottom + (MARGIN_DP * density)
+    private fun cardWidth(width: Int, height: Int, margin: Int): Int {
+        val room = width - leftInset - rightInset - margin * 2
+        return if (width > height) (room * CARD_SHARE_WIDE).toInt() else room
+    }
+
+    /** The practice area starts below the card, or beside it on a wide screen, so the window never hides the instructions. */
+    private fun areaTop() = if (wide) topInset + MARGIN_DP * density else card.bottom + (MARGIN_DP * density)
+
+    private fun areaLeft() = if (wide) card.right + MARGIN_DP * density else leftInset.toFloat()
+
+    private fun areaRight() = (width - rightInset).toFloat()
 
     private fun areaBottom() = height - bottomInset.toFloat()
 
@@ -379,9 +400,12 @@ class TutorialOverlay(
             filled = null
             landscape = false
             val area = areaBottom() - areaTop()
-            windowWidth = (this@TutorialOverlay.width * START_WIDTH_RATIO).toInt()
-            windowHeight = minOf((windowWidth * PHONE_RATIO).toInt() + titleHeight, (area * 0.8f).toInt())
-            x = (this@TutorialOverlay.width - windowWidth) / 2f
+            val across = areaRight() - areaLeft()
+            // Phone shaped whatever the screen: as tall as fits, and only as wide as that allows.
+            windowHeight = minOf(((across * START_WIDTH_RATIO) * PHONE_RATIO).toInt() + titleHeight, (area * 0.8f).toInt())
+            windowWidth = minOf((across * START_WIDTH_RATIO).toInt(), ((windowHeight - titleHeight) / PHONE_RATIO).toInt())
+                .coerceAtLeast(minWidth)
+            x = areaLeft() + (across - windowWidth) / 2f
             y = areaTop() + (area - windowHeight) / 2f
             alpha = 1f
             visibility = View.VISIBLE
@@ -411,9 +435,9 @@ class TutorialOverlay(
             val saved = filled
             if (saved == null) {
                 filled = RectF(x, y, x + windowWidth, y + windowHeight)
-                x = 0f
+                x = areaLeft()
                 y = areaTop()
-                windowWidth = this@TutorialOverlay.width
+                windowWidth = (areaRight() - areaLeft()).toInt()
                 windowHeight = (areaBottom() - areaTop()).toInt()
             } else {
                 filled = null
@@ -429,10 +453,9 @@ class TutorialOverlay(
             if (filled != null) return
             landscape = !landscape
             val contentHeight = windowHeight - titleHeight
-            val area = this@TutorialOverlay
             windowHeight = minOf(windowWidth + titleHeight, (areaBottom() - areaTop()).toInt())
-            windowWidth = minOf(contentHeight, area.width)
-            x = x.coerceIn(0f, (area.width - windowWidth).toFloat())
+            windowWidth = minOf(contentHeight, (areaRight() - areaLeft()).toInt())
+            x = x.coerceIn(areaLeft(), (areaRight() - windowWidth).coerceAtLeast(areaLeft()))
             y = y.coerceIn(areaTop(), areaBottom() - windowHeight)
             label.text = s(if (landscape) R.string.tutorial_sample_landscape else R.string.tutorial_sample_app)
             requestLayout()
@@ -576,7 +599,7 @@ class TutorialOverlay(
                             val bottom = startY + startHeight
                             windowWidth = (startWidth - (event.rawX - downRawX)).toInt().coerceIn(minWidth, right.toInt())
                             windowHeight = (startHeight - (event.rawY - downRawY)).toInt()
-                                .coerceIn(titleHeight + minWidth / 2, (bottom - areaTop()).toInt())
+                                .coerceIn(minOf(titleHeight + minWidth / 2, startHeight), (bottom - areaTop()).toInt())
                             this@DemoWindow.x = right - windowWidth
                             this@DemoWindow.y = bottom - windowHeight
                             requestLayout()
@@ -604,6 +627,7 @@ class TutorialOverlay(
         const val BUTTON_WIDTH_DP = 44
         const val MIN_WIDTH_DP = 140
         const val START_WIDTH_RATIO = 0.55f
+        const val CARD_SHARE_WIDE = 0.42f
         const val PHONE_RATIO = 1.8f
         const val MOVE_DISTANCE_DP = 60
         const val RESIZE_DISTANCE_DP = 40

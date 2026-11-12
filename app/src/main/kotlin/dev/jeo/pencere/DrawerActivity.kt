@@ -30,7 +30,8 @@ class DrawerActivity : Activity() {
         val grid = findViewById<GridView>(R.id.grid)
         val margin = (12 * resources.displayMetrics.density).toInt()
         findViewById<View>(R.id.root).setOnApplyWindowInsetsListener { view, insets ->
-            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+            // A side camera cutout in landscape is kept clear as well.
+            val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
             view.setPadding(bars.left + margin, bars.top + margin, bars.right + margin, bars.bottom)
             insets
         }

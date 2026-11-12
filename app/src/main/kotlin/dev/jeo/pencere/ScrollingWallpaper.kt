@@ -93,7 +93,9 @@ class WallpaperView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val image = bitmap ?: return
-        val scale = max(width / image.width.toFloat(), height / image.height.toFloat())
+        // At least a little wider than the screen, so it still scrolls on a wide screen where a
+        // 16:9 image would otherwise just fit across.
+        val scale = max(width * MIN_SCROLL_ROOM / image.width.toFloat(), height / image.height.toFloat())
         val extra = image.width * scale - width
         matrix.setScale(scale, scale)
         matrix.postTranslate(-extra * progress.coerceIn(0f, 1f), (height - image.height * scale) / 2f)
@@ -103,5 +105,9 @@ class WallpaperView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         loader.shutdown()
+    }
+
+    private companion object {
+        const val MIN_SCROLL_ROOM = 1.3f
     }
 }

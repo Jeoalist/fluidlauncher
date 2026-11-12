@@ -15,3 +15,6 @@ build/
 
 # graphify knowledge graph output
 graphify-out/
+
+# local bug notes
+LANDSCAPE_BUGS.md

@@ -246,18 +246,30 @@ class TrayDesktop(
         desktopTray.y = trayTop.toFloat()
         clockBlock.x = (insets.left + dp(24)).toFloat()
         clockBlock.y = (insets.top + dp(28)).toFloat()
-        // The app list fills the rest: below the clock, above the picker, left of the index.
-        val listTop = (clockBlock.y + clockBlock.height).toInt() + dp(12)
-        val listBottom = if (keyboardHeight > 0) height - keyboardHeight - dp(8) else trayTop - dp(8)
+        // Tall screens put the app list under the clock; a wide, short one puts it beside the
+        // clock, or it would get barely a row.
+        val wide = width > height
+        val listLeft = if (wide) maxOf((clockBlock.x + clockBlock.width).toInt() + dp(24), (width * 0.38f).toInt()) else insets.left + dp(12)
+        val listTop = if (wide) insets.top + dp(12) else (clockBlock.y + clockBlock.height).toInt() + dp(12)
+        val bottom = if (keyboardHeight > 0) height - keyboardHeight - dp(8) else trayTop - dp(8)
+        // A docked keyboard leaves the list at least a few rows instead of nothing.
+        val listBottom = maxOf(bottom, listTop + dp(MIN_LIST_DP))
         val indexLeft = width - insets.right - dp(RAIL_WIDTH_DP) - dp(2)
-        // The rail spans the list's height and the whole width, so its wave can reach over the
-        // list. Only when it changes: a new size lays the parent out again, which calls this again.
-        val indexHeight = listBottom - listTop
-        if (index.layoutParams.height != indexHeight) {
-            index.layoutParams = index.layoutParams.apply { this.height = indexHeight }
-        }
+        // The rail spans the list's height and the whole width, so its wave can reach over the list.
+        resizeLater(index, FrameLayout.LayoutParams.MATCH_PARENT, listBottom - listTop)
         index.y = listTop.toFloat()
-        panel.place(insets.left + dp(12), listTop, indexLeft - dp(4), listBottom)
+        panel.place(listLeft, listTop, indexLeft - dp(4), listBottom)
+    }
+
+    /**
+     * Sizes a child after the current layout pass: a size set during one is not applied until
+     * something else lays the screen out again, which left the rail at a stale height. Only on a
+     * change, since a new size lays the parent out again, which calls [place] again.
+     */
+    private fun resizeLater(view: View, width: Int, height: Int) {
+        val current = view.layoutParams
+        if (current != null && current.width == width && current.height == height) return
+        view.post { view.layoutParams = FrameLayout.LayoutParams(width, height) }
     }
 
     /**
@@ -278,6 +290,9 @@ class TrayDesktop(
     fun release() {
         panel.release()
     }
+
+    /** Empties the search and puts the keyboard away, as when leaving the desktop. */
+    fun clearSearch() = panel.clearSearch()
 
     // ---- App list panel ---------------------------------------------------------------------
 
@@ -426,10 +441,7 @@ class TrayDesktop(
         fun place(left: Int, top: Int, right: Int, bottom: Int) {
             val width = right - left
             val height = (bottom - top).coerceAtLeast(dp(PANEL_HEADER_DP))
-            val current = layoutParams
-            if (current == null || current.width != width || current.height != height) {
-                layoutParams = FrameLayout.LayoutParams(width, height)
-            }
+            resizeLater(this, width, height)
             x = left.toFloat()
             y = top.toFloat()
         }
@@ -784,7 +796,8 @@ class TrayDesktop(
             if (letters.isEmpty() || height == 0) return
             val item = itemHeight
             val highlight = if (dragging) current else section
-            letterPaint.textSize = sp(RAIL_LETTER_SP)
+            // Shrinks the letters when the rail is shorter than the alphabet, so they never overlap.
+            letterPaint.textSize = minOf(sp(RAIL_LETTER_SP), item * 0.85f)
             letterPaint.setShadowLayer(6f, 0f, 2f, 0xB3000000.toInt())
             val edgeDistance = width - railX
             letters.forEachIndexed { i, letter ->
@@ -864,6 +877,7 @@ class TrayDesktop(
 
         // The alphabet rail, with immergreen-launcher's defaults.
         const val RAIL_ITEM_DP = 19
+        const val MIN_LIST_DP = 140
         const val RAIL_LETTER_SP = 14f
         const val RAIL_WIDTH_DP = 30
         const val RAIL_LIFT_DP = 64

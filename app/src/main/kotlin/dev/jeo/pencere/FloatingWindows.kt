@@ -45,7 +45,8 @@ object FloatingWindows : AppWindow.Host {
         window.y = placement.y
         manager.addView(window, params.getValue(window))
         windows += window
-        window.keepInArea(statusBarHeight(manager).toFloat())
+        keepInScreen(window, manager)
+        watchRotation(appContext)
         cascade = (cascade + 1) % AppWindows.CASCADE_LENGTH
         return true
     }
@@ -85,6 +86,48 @@ object FloatingWindows : AppWindow.Host {
         if (window.isAttachedToWindow) windowManager?.removeView(window)
         params -= window
         windows -= window
+    }
+
+    private var watching = false
+
+    /** Windows over another app follow the screen as it turns, instead of being left off it. */
+    private fun watchRotation(context: Context) {
+        if (watching) return
+        watching = true
+        context.registerComponentCallbacks(object : android.content.ComponentCallbacks {
+            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+                val manager = windowManager ?: return
+                // Posted: the new screen size is known once the change has gone through.
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    windows.toList().forEach { keepInScreen(it, manager) }
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onLowMemory() = Unit
+        })
+    }
+
+    /** Keeps a window whole on screen: below the status bar, above the gesture bar, clear of a cutout. */
+    private fun keepInScreen(window: AppWindow, manager: WindowManager) {
+        val metrics = manager.currentWindowMetrics
+        val insets = metrics.windowInsets.getInsets(
+            WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.mandatorySystemGestures(),
+        )
+        val bounds = metrics.bounds
+        window.keepInArea(
+            statusBarHeight(manager).toFloat(),
+            (bounds.height() - insets.bottom).toFloat(),
+            insets.left.toFloat(),
+            insets.right.toFloat(),
+        )
+        // A window from the wider screen shrinks evenly to fit across this one.
+        val across = bounds.width() - insets.left - insets.right
+        if (window.frameWidth > across && across > 0) {
+            window.setFrame(insets.left.toFloat(), window.y, across, window.frameHeight * across / window.frameWidth)
+        }
+        val maxX = (bounds.width() - insets.right - window.frameWidth).toFloat().coerceAtLeast(insets.left.toFloat())
+        window.x = window.x.coerceIn(insets.left.toFloat(), maxX)
     }
 
     private fun statusBarHeight(manager: WindowManager) =

@@ -25,7 +25,8 @@
         android:layout_height="0dp"
         android:layout_marginTop="8dp"
         android:layout_weight="1"
-        android:numColumns="4"
+        android:columnWidth="88dp"
+        android:numColumns="auto_fit"
         android:scrollbars="none"
         android:stretchMode="columnWidth" />
 </LinearLayout>

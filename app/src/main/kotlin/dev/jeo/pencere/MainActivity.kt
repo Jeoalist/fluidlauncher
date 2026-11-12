@@ -86,6 +86,8 @@ class MainActivity : Activity() {
         margin = (16 * resources.displayMetrics.density).toInt()
         root.setOnApplyWindowInsetsListener { _, insets ->
             systemBars = insets.getInsets(WindowInsets.Type.systemBars())
+            // A camera cutout on a side in landscape is room nothing should be placed in either.
+            sideInsets = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
             desktop.setPadding(
                 systemBars.left + margin,
                 systemBars.top + margin,
@@ -98,7 +100,7 @@ class MainActivity : Activity() {
             ).bottom
             excludeBackGesture()
             keepWindowsInArea()
-            tray.setInsets(systemBars)
+            tray.setInsets(sideInsets)
             insets
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -158,8 +160,10 @@ class MainActivity : Activity() {
     }
 
     private fun keepWindowsInArea() {
-        windows.keepInArea(systemBars.top.toFloat())
+        windows.keepInArea(systemBars.top.toFloat(), sideInsets.left.toFloat(), sideInsets.right.toFloat())
     }
+
+    private var sideInsets: Insets = Insets.NONE
 
     override fun onResume() {
         super.onResume()
@@ -188,6 +192,8 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         unregisterReceiver(minuteReceiver)
+        // A focused search box would bring the keyboard back on its own on return.
+        tray.clearSearch()
         startedCount--
         if (!isChangingConfigurations) FloatingAppsButton.show(this)
     }
@@ -322,13 +328,17 @@ class MainActivity : Activity() {
 
     private fun canStartPan(event: MotionEvent): Boolean {
         val zoneBottom = root.height - gestureBottomInset
+        // On a short, wide screen the fixed height would cover most of it; a quarter is enough.
+        val zoneHeight = minOf(panZoneHeight, root.height / 4)
         val inZone = event.rawX <= root.width * PAN_ZONE_WIDTH_RATIO &&
-            event.rawY >= zoneBottom - panZoneHeight && event.rawY <= zoneBottom
+            event.rawY >= zoneBottom - zoneHeight && event.rawY <= zoneBottom
         val onButton = event.rawX >= appsButton.x && event.rawX <= appsButton.x + appsButton.width &&
             event.rawY >= appsButton.y && event.rawY <= appsButton.y + appsButton.height
         // The desktop picker scrubs through desktops itself.
         val onPicker = tray.isOnPicker(event.rawX, event.rawY)
-        return inZone && !onButton && !onPicker && !windows.isOnTitleBar(event.rawX, event.rawY)
+        // Sideways drags inside an app (sliders, carousels) belong to the app.
+        val onApp = windows.isOnContent(event.rawX, event.rawY)
+        return inZone && !onButton && !onPicker && !onApp && !windows.isOnTitleBar(event.rawX, event.rawY)
     }
 
     private fun updateArmedPan(event: MotionEvent) {
@@ -522,14 +532,21 @@ class MainActivity : Activity() {
 
     /** Holding an empty spot on the desktop offers to open the launcher settings. */
     private fun setUpDesktopHold() {
+        attachSettingsHold(desktop)
+        // Touches nothing else takes reach the root: on the tray layout's other desktops that is
+        // the empty desktop itself, which should open the settings as well.
+        attachSettingsHold(root)
+    }
+
+    private fun attachSettingsHold(target: View) {
         val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
         var downY = 0f
         val askToOpenSettings = Runnable {
-            desktop.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            target.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
             askToOpenSettings()
         }
-        desktop.setOnTouchListener { view, event ->
+        target.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX

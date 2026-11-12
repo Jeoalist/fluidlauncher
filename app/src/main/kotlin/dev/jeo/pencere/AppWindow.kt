@@ -65,14 +65,20 @@ class AppWindow(
      */
     fun setFrame(newX: Float, newY: Float, width: Int, height: Int) {
         if (isFilled) return
-        windowWidth = width.coerceAtLeast(minWidth)
+        val newWidth = width.coerceAtLeast(minWidth)
         // The app lays itself out for the tile at its usual size, as when filling the screen,
         // instead of a phone layout blown up to the tile's width.
-        displayWidth = (windowWidth * 2 / 3) and 1.inv()
-        val maxContent = windowWidth * maxDisplayHeight / displayWidth
-        contentHeight = (height - titleHeight).coerceIn(titleHeight, maxContent.coerceAtLeast(titleHeight))
-        x = newX
-        y = newY
+        val newDisplayWidth = (newWidth * 2 / 3) and 1.inv()
+        val maxContent = newWidth * maxDisplayHeight / newDisplayWidth
+        val newContent = (height - titleHeight).coerceIn(titleHeight, maxContent.coerceAtLeast(titleHeight))
+        if (x != newX) x = newX
+        if (y != newY) y = newY
+        // Unchanged tiles are left alone: every new size lays the launcher out again, and that
+        // used to come straight back here, resizing the app's display many times a second.
+        if (newWidth == windowWidth && newContent == contentHeight && newDisplayWidth == displayWidth) return
+        windowWidth = newWidth
+        displayWidth = newDisplayWidth
+        contentHeight = newContent
         applySize()
         resizeDisplay()
     }
@@ -108,6 +114,12 @@ class AppWindow(
 
     private fun areaHeight() = host?.areaHeight ?: (parent as View).height
 
+    /** The bottom windows stay above, such as the tray's desktop picker; else the screen's. */
+    private fun areaBottom() = if (bottomLimit > 0f) bottomLimit else areaHeight().toFloat()
+
+    /** The usable width, between a camera cutout or side bars on either side. */
+    private fun usableWidth() = (areaWidth() - leftInset - rightInset).toInt()
+
     /** Size of the virtual display the app believes is its screen. */
     data class DisplaySpec(val width: Int, val height: Int, val dpi: Int)
 
@@ -118,6 +130,7 @@ class AppWindow(
     private val prefs = LauncherPrefs(context)
     private var titleHeight = (TITLE_HEIGHT_DP * density).toInt()
     private lateinit var titleBarView: LinearLayout
+    private lateinit var column: LinearLayout
     private lateinit var gripView: TextView
     private lateinit var closeView: TextView
     private val labelView = TextView(context)
@@ -137,14 +150,17 @@ class AppWindow(
     private var surface: Surface? = null
     var displayId = NO_DISPLAY
         private set
-    private var windowWidth = initialWidth
+    private var windowWidth = initialWidth.coerceAtLeast(minWidth)
     private var displayWidth = spec.width
     private var restore: Restore? = null
     private var topLimit = 0f
+    private var bottomLimit = 0f
+    private var leftInset = 0f
+    private var rightInset = 0f
 
     /** How much the last turn to landscape shrank the window, undone when it turns back. */
     private var rotationShrink = 1f
-    private var contentHeight = minOf(initialWidth * spec.height / spec.width, maxContentHeight)
+    private var contentHeight = minOf(windowWidth * spec.height / spec.width, maxContentHeight)
 
     /** Display pixels hidden above the window, for apps that leave a blank strip on virtual displays. */
     private val topCrop = (TOP_CROP_DP[app.packageName] ?: 0) * spec.dpi / DisplayMetrics.DENSITY_DEFAULT
@@ -153,7 +169,7 @@ class AppWindow(
     private var displayHeight = computeDisplayHeight()
 
     init {
-        val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         column.addView(titleBar(), LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, titleHeight))
         column.addView(texture, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -188,16 +204,39 @@ class AppWindow(
     }
 
     /** Touches here belong to the window's own drag and resize handling. */
-    fun isOnTitleBar(screenX: Float, screenY: Float): Boolean =
-        screenX >= x && screenX <= x + width && screenY >= y && screenY <= y + titleHeight
+    fun isOnTitleBar(screenX: Float, screenY: Float): Boolean {
+        if (screenX < x || screenX > x + width) return false
+        return if (isFilled) screenY >= y + height - titleHeight && screenY <= y + height else screenY >= y && screenY <= y + titleHeight
+    }
 
-    fun isOnContent(screenX: Float, screenY: Float): Boolean =
-        screenX >= x && screenX <= x + width && screenY > y + titleHeight && screenY <= y + height
+    fun isOnContent(screenX: Float, screenY: Float): Boolean {
+        if (screenX < x || screenX > x + width) return false
+        return if (isFilled) screenY >= y && screenY < y + height - titleHeight else screenY > y + titleHeight && screenY <= y + height
+    }
 
-    /** Keeps the title bar below the status bar and reachable after the screen rotates. */
-    fun keepInArea(top: Float) {
+    /** A window filling the screen has its title bar at the bottom, out of the app's way at the top. */
+    private fun placeTitleBar() {
+        val atBottom = isFilled
+        val index = column.indexOfChild(titleBarView)
+        if (atBottom == (index == 1)) return
+        val params = titleBarView.layoutParams
+        column.removeView(titleBarView)
+        column.addView(titleBarView, if (atBottom) 1 else 0, params)
+    }
+
+    /**
+     * Keeps the title bar below the status bar and reachable after the screen rotates. [bottom]
+     * is where windows stop above the desktop picker (0 for the screen's bottom); [left] and
+     * [right] keep clear of a camera cutout or side bars.
+     */
+    fun keepInArea(top: Float, bottom: Float = bottomLimit, left: Float = leftInset, right: Float = rightInset) {
         topLimit = top
-        y = y.coerceIn(top, maxTop())
+        bottomLimit = bottom
+        leftInset = left
+        rightInset = right
+        if (parent == null && host == null) return
+        val newY = y.coerceIn(top, maxTop())
+        if (newY != y) y = newY
         if (restore != null && !fillsArea()) post(::fillArea)
     }
 
@@ -209,7 +248,8 @@ class AppWindow(
      */
     fun scaleForRotation(widthScale: Float, heightScale: Float) {
         x *= widthScale
-        y *= heightScale
+        // A filled window stays against the top; scaling would push it down past the picker.
+        y = if (isFilled) topLimit else y * heightScale
         val scale = if (heightScale < 1f) {
             val room = areaHeight() - topLimit - titleHeight * 2f
             minOf(1f, room / contentHeight).also { rotationShrink = it }
@@ -222,9 +262,16 @@ class AppWindow(
         if (!isFilled) {
             windowWidth = (windowWidth * scale).roundToInt()
             contentHeight = (contentHeight * scale).roundToInt()
+            // A window from the wider screen must still fit across this one.
+            val across = usableWidth()
+            if (windowWidth > across && across > 0) {
+                val shrink = across / windowWidth.toFloat()
+                windowWidth = across
+                contentHeight = (contentHeight * shrink).roundToInt()
+            }
             applySize()
             resizeDisplay()
-            y = y.coerceAtMost(areaHeight() - contentHeight - titleHeight.toFloat())
+            y = y.coerceAtMost(areaBottom() - contentHeight - titleHeight.toFloat())
         }
         keepInArea(topLimit)
     }
@@ -239,26 +286,29 @@ class AppWindow(
         val turnedDisplayWidth = (displayHeight - topCrop) and 1.inv()
         val width = turnedDisplayWidth * appScale
         val height = displayWidth * appScale
-        val fit = minOf(1f, areaWidth() / width, (areaHeight() - topLimit - titleHeight) / height)
+        // Grows or shrinks evenly to make good use of the room, so a turned small window does not
+        // squeeze the app into a thin strip.
+        val fit = minOf(usableWidth() * TURN_WIDTH_SHARE / width, (areaBottom() - topLimit - titleHeight) / height)
         displayWidth = turnedDisplayWidth
-        windowWidth = (width * fit).roundToInt()
+        windowWidth = (width * fit).roundToInt().coerceAtLeast(minWidth)
         contentHeight = (height * fit).roundToInt()
-        x = x.coerceAtMost(areaWidth() - windowWidth.toFloat())
-        y = y.coerceAtMost(areaHeight() - contentHeight - titleHeight.toFloat())
+        x = x.coerceIn(leftInset, (areaWidth() - rightInset - windowWidth).coerceAtLeast(leftInset))
+        y = y.coerceAtMost(areaBottom() - contentHeight - titleHeight.toFloat())
         applySize()
         resizeDisplay()
         keepInArea(topLimit)
     }
 
-    private fun availableContentHeight() = areaHeight() - topLimit.toInt() - titleHeight
+    private fun availableContentHeight() = (areaBottom() - topLimit).toInt() - titleHeight
 
-    private fun fillsArea() = windowWidth == areaWidth() && contentHeight == availableContentHeight()
+    /** A filled window covers exactly the room between the status bar and the desktop picker. */
+    private fun fillsArea() = windowWidth == usableWidth() && contentHeight == availableContentHeight() && y == topLimit
 
     private fun toggleFilled() {
         val saved = restore
         if (saved == null) {
-            restore = Restore(x, y, windowWidth, contentHeight, displayWidth)
-            x = 0f
+            restore = Restore(x - leftInset, y, windowWidth, contentHeight, displayWidth)
+            x = leftInset
             fillArea()
         } else {
             restore = null
@@ -272,12 +322,13 @@ class AppWindow(
             // Back among the other windows, which may have moved into its old place meanwhile.
             arranger?.resized(this)
         }
+        placeTitleBar()
         onFilledChanged()
     }
 
     /** Runs the app at the panel's own proportions instead of the scaled phone layout. */
     private fun fillArea() {
-        windowWidth = areaWidth()
+        windowWidth = usableWidth()
         contentHeight = availableContentHeight()
         y = topLimit
         displayWidth = (windowWidth * 2 / 3) and 1.inv()
@@ -285,7 +336,7 @@ class AppWindow(
         resizeDisplay()
     }
 
-    private fun maxTop() = (areaHeight() - titleHeight * 2f).coerceAtLeast(topLimit)
+    private fun maxTop() = (areaBottom() - titleHeight * 2f).coerceAtLeast(topLimit)
 
     fun close() {
         call { if (displayId != NO_DISPLAY) service.releaseDisplay(displayId) }
@@ -300,6 +351,8 @@ class AppWindow(
         call {
             val rate = context.chosenRefreshRate().toFloat()
             displayId = service.createDisplay("pencere-${app.packageName}", displayWidth, displayHeight, spec.dpi, created, rate)
+            sentWidth = displayWidth
+            sentHeight = displayHeight
             service.launch(displayId, app.component.flattenToString(), separateTask)
         }
     }
@@ -308,7 +361,10 @@ class AppWindow(
         if (host != null) {
             host.place(this, hostX, hostY, windowWidth, contentHeight + titleHeight)
         } else {
-            layoutParams = LayoutParams(windowWidth, contentHeight + titleHeight)
+            val current = layoutParams
+            if (current == null || current.width != windowWidth || current.height != contentHeight + titleHeight) {
+                layoutParams = LayoutParams(windowWidth, contentHeight + titleHeight)
+            }
         }
     }
 
@@ -359,7 +415,7 @@ class AppWindow(
             gripView.textSize = 16f
             gripView.setTextColor(if (isActive) newTheme.accent else newTheme.muted)
             gripView.typeface = android.graphics.Typeface.create(newTheme.typeface, android.graphics.Typeface.BOLD)
-            labelView.visibility = View.VISIBLE
+            labelView.visibility = View.GONE
             labelView.typeface = newTheme.typeface
             labelView.textSize = 14f
             labelView.setTextColor(newTheme.muted)
@@ -472,7 +528,7 @@ class AppWindow(
     /** Keeps the title bar reachable so that a window can always be dragged back. */
     /** Stays whole on its own desktop, so a window can never be dragged onto the next one. */
     private fun moveTo(newX: Float, newY: Float) {
-        val nx = newX.coerceIn(0f, (areaWidth() - windowWidth).toFloat().coerceAtLeast(0f))
+        val nx = newX.coerceIn(leftInset, (areaWidth() - rightInset - windowWidth).coerceAtLeast(leftInset))
         val ny = newY.coerceIn(topLimit, maxTop())
         val placer = arranger
         if (placer != null) {
@@ -535,7 +591,7 @@ class AppWindow(
         startWidth: Int,
         startHeight: Int,
     ) {
-        val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, areaWidth())
+        val maxWidth = (startX + startWidth - leftInset).toInt().coerceIn(minWidth, areaWidth())
         windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
         val minHeight = minOf(windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100, minWidth)
         val maxHeight = minOf(windowWidth * maxDisplayHeight / displayWidth, (startY + startHeight - topLimit).toInt())
@@ -569,10 +625,18 @@ class AppWindow(
     private fun resizeDisplay() {
         if (displayId == NO_DISPLAY) return
         displayHeight = computeDisplayHeight()
+        // Each resize makes the app lay itself out again, so only a real change is sent.
+        if (displayWidth == sentWidth && displayHeight == sentHeight) return
+        sentWidth = displayWidth
+        sentHeight = displayHeight
         texture.surfaceTexture?.setDefaultBufferSize(displayWidth, displayHeight)
         call { service.resizeDisplay(displayId, displayWidth, displayHeight, spec.dpi) }
         applyCrop()
     }
+
+    /** The display size the service last got, to skip repeats. */
+    private var sentWidth = -1
+    private var sentHeight = -1
 
     private fun computeDisplayHeight() = (contentHeight * displayWidth / windowWidth + topCrop) and 1.inv()
 
@@ -621,11 +685,12 @@ class AppWindow(
         const val FULLSCREEN_HOLD_MS = 1500L
         val TOP_CROP_DP = mapOf("com.instagram.android" to 56, "com.zhiliaoapp.musically" to 56)
         const val TITLE_HEIGHT_DP = 24
-        const val TRAY_TITLE_HEIGHT_DP = 36
+        const val TRAY_TITLE_HEIGHT_DP = 28
         const val TRAY_RADIUS_DP = 20
         const val TRAY_BORDER_DP = 2
         const val ACTIVE_ALPHA = 0.94f
         const val INACTIVE_ALPHA = 0.6f
+        const val TURN_WIDTH_SHARE = 0.9f
         const val BUTTON_WIDTH_DP = 44
         const val MIN_WIDTH_DP = 140
         const val MIN_DISPLAY_HEIGHT_RATIO_PERCENT = 60
