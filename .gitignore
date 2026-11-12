@@ -12,3 +12,6 @@ build/
 *.pem
 .env
 .env.*
+
+# graphify knowledge graph output
+graphify-out/

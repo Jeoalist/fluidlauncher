@@ -5,6 +5,8 @@ import android.app.Activity
 import android.graphics.Insets
 import android.graphics.Rect
 import android.os.Bundle
+import android.widget.FrameLayout
+import android.content.Intent
 import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
@@ -141,6 +143,8 @@ class SearchActivity : Activity() {
     private fun render(apps: List<AppEntry>, holdToClose: Boolean) {
         results = apps
         row.removeAllViews()
+        // The list of open apps always starts with a way back to the home screen.
+        if (holdToClose) row.addView(homeIcon(), LinearLayout.LayoutParams(slotWidth, LinearLayout.LayoutParams.MATCH_PARENT))
         apps.forEach { app ->
             val icon = ImageView(this).apply {
                 setImageDrawable(app.icon)
@@ -157,6 +161,23 @@ class SearchActivity : Activity() {
                 }
             }
             row.addView(icon, LinearLayout.LayoutParams(slotWidth, LinearLayout.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun homeIcon() = FrameLayout(this).apply {
+        setPadding(iconPadding, iconPadding, iconPadding, iconPadding)
+        val glyph = ImageView(context).apply {
+            setBackgroundResource(R.drawable.fab)
+            setImageResource(R.drawable.ic_home)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val inner = iconPadding * 2
+            setPadding(inner, inner, inner, inner)
+            contentDescription = getString(R.string.home_screen)
+        }
+        addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        glyph.setOnClickListener {
+            startActivity(Intent(this@SearchActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            finish()
         }
     }
 
