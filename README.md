@@ -6,15 +6,30 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 
 ## Özellikler
 
+**Pencereler**
 - Sanal ekranlarda çalışan, ölçekli uygulama pencereleri
-- Sürükleme, serbest boyutlandırma ve çift dokunarak tam ekran
-- Sol alttan çekerek geçilen sanal masaüstleri; arka plandaki uygulamalar kapanmaz
-- Ekranda taşınabilen düğme ve Türkçe karakter gerektirmeyen uygulama araması
+- Sürükleme, serbest boyutlandırma, çift dokunarak tam ekran; tam ekran pencerede başlık çubuğu alta geçer
+- Pencereler üst üste binmez ve başka masaüstüne kaçmaz: varsayılan olarak birbirini iterler, uygulama düğmesine üç kez dokununca döşeme (tiling) moduna geçilir
+- Başlık çubuğundaki **Aa** butonuyla uygulama ölçeği (%50–%200), her uygulama için ayrı kaydedilir
 - Gerçek tam ekrandaki uygulamaların üstünde de duran uygulama düğmesi ve pencereler
+
+**Masaüstü**
+- İki düzen: **Tray** (varsayılan) ve **Klasik**
+- Tray düzeninde ilk masaüstü ana ekrandır: saat, tarih, takvimdeki sıradaki etkinlik, bildirim noktaları, arama kutulu uygulama listesi ve kaydırınca dalgalanan alfabe şeridi. Buradan açılan uygulamalar 2. masaüstünde açılır
+- Altta, parmağı kaydırarak da kullanılabilen 5 masaüstlük seçici; arka plandaki uygulamalar kapanmaz
+- Uygulamaya basılı tutunca: uygulama başına "Tam ekranda aç" anahtarı, uygulama bilgisi ve kaldırma
+- Masaüstleriyle birlikte kayan 16:9 duvar kağıdı
+
+**Görünüm**
+- Hazır temalar, renk seçerek kendi temanı oluşturma ve duvar kağıdından otomatik tema
+- Font içe aktarma ve seçme, ikonlara temaya uygun gölgelendirme, liste ya da ızgara görünümü
+
+**Diğer**
 - Ayarlanabilir pencere hareketleri, ekran yenileme hızı (120/90/60 Hz) ve dil (Türkçe / English)
 - İlk açılışta etkileşimli kullanım rehberi
-- Başka bir uygulamaya gerek yok: ekran servisi, telefonun kablosuz hata ayıklamasıyla launcher'ın içinden başlatılır
+- Başka bir uygulamaya gerek yok: ekran servisi, telefonun kablosuz hata ayıklamasıyla launcher'ın içinden başlatılır ve yeniden başlatmadan sonra kendiliğinden açılır
 - Ekran servisi kapalıyken sistemin kendi pencere moduna geri dönüş
+- Uygulamanın içinden görülebilen açık kaynak lisansları
 
 ## Gereksinimler
 
@@ -27,10 +42,10 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 Hazır APK'yı [Releases](https://github.com/Jeoalist/fluidlauncher/releases) sayfasından indirip kurabilirsiniz:
 
 ```sh
-adb install FluidLauncher-1.0.0.apk
+adb install -r FluidLauncher-1.1.0.apk
 ```
 
-Kendi derlediğiniz bir sürüm telefonda kuruluysa önce onu kaldırın; imzalar farklı olduğu için üzerine kurulamaz.
+Yeni sürümler eskisinin üzerine kurulur. Kendi derlediğiniz bir sürüm telefonda kuruluysa önce onu kaldırın; imzalar farklı olduğu için üzerine kurulamaz.
 
 ## Derleme
 
@@ -67,19 +82,24 @@ Kablosuz hata ayıklama gerçek bir Wi‑Fi ağı ister; telefonun kendi hotspot
 
 | Hareket | Sonuç |
 |---|---|
-| Yuvarlak düğmeye dokunma | Uygulama araması |
+| Yuvarlak düğmeye dokunma | Uygulama araması; tekrar dokununca kapanır |
+| Yuvarlak düğmeye üç kez dokunma | İterek yerleştirme ↔ döşeme (tiling) |
+| Yuvarlak düğmeye basılı tutma | Arka plandaki uygulamaları kapatır |
 | Düğmeyi sürükleme | Düğmeyi taşır |
-| Üst barı sürükleme | Pencereyi taşır |
-| Üst barın sol köşesi `◤` | Pencereyi boyutlandırır |
-| Üst barın ortasına çift dokunma | Tam ekran / eski boyut |
-| Ekranın sol alt bölgesinden yana çekme | Masaüstü değiştirir |
-| Masaüstüne basılı tutma | Pencere boyutu, duvar kağıdı, ayarlar |
+| Başlık çubuğunu sürükleme | Pencereyi taşır |
+| Başlık çubuğuna çift dokunma | Tam ekran / eski boyut |
+| Başlık çubuğuna üç kez dokunma | Uygulamayı yan çevirir |
+| Başlık çubuğuna basılı tutma | Uygulamayı gerçek tam ekranda açar |
+| Başlık çubuğunun sol köşesi | Dokunma: Geri, sürükleme: boyutlandırma |
+| **Aa** | Uygulama ölçeği slider'ı |
+| Alttaki masaüstü seçici | Dokunarak ya da parmağı kaydırarak masaüstü değiştirir |
+| Uygulamaya basılı tutma | Tam ekranda aç anahtarı, uygulama bilgisi, kaldırma |
+| Masaüstünde boş bir yere basılı tutma | Ayarlar |
 
-Masaüstü değiştirmek için hareketi ekranın en alt çizgisinin biraz üstünden başlatın; en alt çizgi sistemin kendi hareketlerine ayrılmıştır.
+Başlık çubuğu hareketleri Ayarlar → Pencere hareketleri'nden değiştirilebilir.
 
 ## Bilinen sınırlar
 
-- Pencereler masaüstüne aittir; tam ekran bir uygulama açıkken arkada kalır.
 - Launcher yeniden başlayınca pencereler kapanır.
 - Pencere içinde sistemin geri hareketi yoktur, uygulamanın kendi geri düğmeleri kullanılır.
 - Ekran görüntüsünü engelleyen uygulamalar pencerede siyah görünebilir.
