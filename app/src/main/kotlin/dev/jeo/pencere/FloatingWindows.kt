@@ -23,7 +23,7 @@ object FloatingWindows : AppWindow.Host {
 
     /** Returns false when windows cannot float here, so the caller can use the launcher instead. */
     fun open(context: Context, app: AppEntry, newWindow: Boolean): Boolean {
-        val service = ShizukuBridge.service ?: return false
+        val service = DisplayBridge.service ?: return false
         val appContext = context.applicationContext
         if (!FloatingAppsButton.canShow(appContext)) return false
         val existing = windows.firstOrNull { it.app.key == app.key }
@@ -39,6 +39,8 @@ object FloatingWindows : AppWindow.Host {
             onOpenFullscreen = { AppWindows.reopenFullscreen(appContext, it, prefs, ::close) },
             host = this,
         )
+        window.label = "ws"
+        window.applyTheme(LauncherTheme.load(prefs), isActive = true)
         window.x = placement.x
         window.y = placement.y
         manager.addView(window, params.getValue(window))

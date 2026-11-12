@@ -1,9 +1,17 @@
 package dev.jeo.pencere
 
+import android.text.style.TypefaceSpan
+import android.text.SpannableString
+import android.graphics.Typeface
+import android.text.style.ForegroundColorSpan
+import android.text.Spanned
+import android.text.SpannableStringBuilder
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.LocaleManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.LocaleList
@@ -24,15 +32,14 @@ class SettingsActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        FloatingAppsButton.suppressed = true
-        FloatingAppsButton.hide(this)
+        DisplayBridge.addListener(serviceListener)
+        FloatingAppsButton.ownScreenStarted(this)
     }
 
     override fun onStop() {
         super.onStop()
-        FloatingAppsButton.suppressed = false
-        // Back over an app in real full screen, which needs the button again.
-        if (MainActivity.isCovered) FloatingAppsButton.show(this)
+        DisplayBridge.removeListener(serviceListener)
+        FloatingAppsButton.ownScreenStopped(this)
     }
 
     override fun onResume() {
@@ -57,6 +64,8 @@ class SettingsActivity : Activity() {
     private fun render() {
         list.removeAllViews()
         addText(getString(R.string.settings_title), TITLE_SP, padding * 2)
+        addDisplayService()
+        addAppearance()
         addHeader(R.string.settings_windows)
         WindowGesture.entries.forEach { gesture ->
             val current = prefs.windowAction(gesture)
@@ -137,6 +146,7 @@ class SettingsActivity : Activity() {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), getString(R.string.wallpaper)))
         }
         addRow(getString(R.string.settings), null) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        addRow(getString(R.string.licenses_title), null) { startActivity(Intent(this, LicensesActivity::class.java)) }
     }
 
     /** Language names are shown in their own language, so each is readable to its speakers. */
@@ -165,7 +175,22 @@ class SettingsActivity : Activity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
-        if (requestCode != PICK_WALLPAPER || resultCode != RESULT_OK || uri == null) return
+        if (resultCode != RESULT_OK || uri == null) return
+        if (requestCode == PICK_FONT) {
+            Thread {
+                val key = runCatching { FontStore.import(this, uri) }.getOrNull()
+                runOnUiThread {
+                    if (key == null) {
+                        Toast.makeText(this, R.string.font_import_failed, Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs.fontKey = key
+                    }
+                    if (!isDestroyed) render()
+                }
+            }.start()
+            return
+        }
+        if (requestCode != PICK_WALLPAPER) return
         // Copying a large image takes a moment; the row shows the result once it is done.
         Thread {
             val saved = runCatching { ScrollingWallpaper.save(this, uri) }.isSuccess
@@ -176,7 +201,173 @@ class SettingsActivity : Activity() {
         }.start()
     }
 
-    private fun choose(titleRes: Int, options: List<String>, selected: Int, onChosen: (Int) -> Unit) {
+    /**
+     * The display service that scales windows: its state, pairing with Wireless debugging (done
+     * once) and whether it can start by itself after a reboot.
+     */
+    private fun addDisplayService() {
+        addHeader(R.string.settings_service)
+        val state = DisplayBridge.state
+        val stateText = when (state) {
+            DisplayBridge.State.READY -> R.string.service_state_running
+            DisplayBridge.State.STARTING -> R.string.service_state_starting
+            DisplayBridge.State.NOT_RUNNING -> R.string.service_state_stopped
+            DisplayBridge.State.NEEDS_PAIRING -> R.string.service_state_unpaired
+        }
+        addRow(getString(R.string.setting_service_state), getString(stateText)) {
+            if (state == DisplayBridge.State.NOT_RUNNING) {
+                DisplayBridge.startNow { result ->
+                    if (result != DisplayStarter.Result.STARTED) {
+                        val message = when (result) {
+                            DisplayStarter.Result.NO_WIRELESS_DEBUGGING -> R.string.service_needs_wireless_debugging
+                            DisplayStarter.Result.NEEDS_PAIRING -> R.string.service_needs_pairing
+                            else -> R.string.pairing_start_failed
+                        }
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        val paired = prefs.adbPaired
+        addRow(getString(R.string.setting_pairing), getString(if (paired) R.string.pairing_state_paired else R.string.pairing_state_unpaired)) {
+            startPairing()
+        }
+        val autoStart = DisplayBridge.canSwitchWirelessDebugging(this)
+        addRow(getString(R.string.setting_auto_start), getString(if (autoStart) R.string.on else R.string.auto_start_after_pairing)) {}
+    }
+
+    /**
+     * Pairing needs the code from the system's own dialog, typed into a notification, so this asks
+     * for notifications first, then starts listening and opens the developer options.
+     */
+    private fun startPairing() {
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATIONS_REQUEST)
+            return
+        }
+        PairingService.start(this)
+        Toast.makeText(this, R.string.pairing_instructions, Toast.LENGTH_LONG).show()
+        startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+    }
+
+    private val serviceListener: () -> Unit = { if (!isDestroyed) render() }
+
+    private fun addAppearance() {
+        addHeader(R.string.settings_appearance)
+        val layout = prefs.desktopLayout
+        addRow(getString(R.string.setting_layout), getString(layout.labelRes)) {
+            choose(R.string.setting_layout, DesktopLayout.entries.map { getString(it.labelRes) }, layout.ordinal) {
+                prefs.desktopLayout = DesktopLayout.entries[it]
+            }
+        }
+        val theme = LauncherTheme.load(prefs)
+        val palette = prefs.palette
+        addRow(getString(R.string.setting_palette), getString(palette.labelRes)) {
+            choose(R.string.setting_palette, Palette.entries.map { dotted(getString(it.labelRes), it.clock, it.accent) }, palette.ordinal) {
+                prefs.palette = Palette.entries[it]
+            }
+        }
+        addColorRow(R.string.setting_accent, theme.accent, prefs.accentColor == null) { prefs.accentColor = it }
+        addColorRow(R.string.setting_clock_color, theme.clock, prefs.clockColor == null) { prefs.clockColor = it }
+        addFontRows()
+        val grid = prefs.panelGrid
+        val listChoices = listOf(R.string.panel_as_list, R.string.panel_as_grid)
+        addRow(getString(R.string.setting_panel_layout), getString(listChoices[if (grid) 1 else 0])) {
+            choose(R.string.setting_panel_layout, listChoices.map(::getString), if (grid) 1 else 0) {
+                prefs.panelGrid = it == 1
+            }
+        }
+        val shade = prefs.iconShade
+        addRow(getString(R.string.setting_icon_shade), getString(shade.labelRes)) {
+            choose(R.string.setting_icon_shade, IconShade.entries.map { getString(it.labelRes) }, shade.ordinal) {
+                prefs.iconShade = IconShade.entries[it]
+            }
+        }
+        val notifications = NotificationCounter.hasAccess(this)
+        addRow(getString(R.string.setting_notification_access), getString(if (notifications) R.string.on else R.string.off)) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        val calendar = CalendarEvents.canRead(this)
+        addRow(getString(R.string.setting_calendar), getString(if (calendar) R.string.on else R.string.off)) {
+            if (calendar || shouldShowRequestPermissionRationale(Manifest.permission.READ_CALENDAR) || !prefs.calendarAsked) {
+                prefs.calendarAsked = true
+                requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), CALENDAR_REQUEST)
+            } else {
+                // Android stops asking after a refusal, so the app's own settings page is the way back.
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+            }
+        }
+    }
+
+    /**
+     * Built-in and imported fonts, each shown in its own face, and a last entry that imports a
+     * new font file. A second row removes imported fonts once there are any.
+     */
+    private fun addFontRows() {
+        val current = prefs.fontKey
+        val imported = FontStore.imported(this)
+        val keys = FontChoice.entries.map { it.name } + imported.map(FontStore::keyOf)
+        addRow(getString(R.string.setting_font), FontStore.label(this, current)) {
+            val options = keys.map { key -> inFace(FontStore.label(this, key), FontStore.typeface(this, key)) } +
+                getString(R.string.font_import)
+            choose(R.string.setting_font, options, keys.indexOf(current)) {
+                if (it < keys.size) prefs.fontKey = keys[it] else pickFont()
+            }
+        }
+        if (imported.isNotEmpty()) {
+            addRow(getString(R.string.setting_remove_font), getString(R.string.fonts_imported, imported.size)) {
+                choose(R.string.setting_remove_font, imported.map(FontStore::nameOf), -1) {
+                    val file = imported[it]
+                    if (prefs.fontKey == FontStore.keyOf(file)) prefs.fontKey = FontChoice.MONOSPACE.name
+                    FontStore.delete(this, file)
+                }
+            }
+        }
+    }
+
+    private fun inFace(text: String, typeface: Typeface): CharSequence =
+        SpannableString(text).apply { setSpan(TypefaceSpan(typeface), 0, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+
+    private fun pickFont() {
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .putExtra(Intent.EXTRA_MIME_TYPES, FONT_TYPES)
+        @Suppress("DEPRECATION")
+        startActivityForResult(pick, PICK_FONT)
+    }
+
+    /** First choice follows the palette; the rest are fixed colours. */
+    private fun addColorRow(titleRes: Int, current: Int, followsPalette: Boolean, onChosen: (Int?) -> Unit) {
+        val currentName = if (followsPalette) {
+            getString(R.string.color_from_palette)
+        } else {
+            Swatch.entries.firstOrNull { it.color == current }?.let { getString(it.labelRes) } ?: "#%06X".format(current and 0xFFFFFF)
+        }
+        addRow(getString(titleRes), currentName) {
+            val options = listOf<CharSequence>(getString(R.string.color_from_palette)) +
+                Swatch.entries.map { dotted(getString(it.labelRes), it.color) }
+            val selected = if (followsPalette) 0 else Swatch.entries.indexOfFirst { it.color == current } + 1
+            choose(titleRes, options, selected) { onChosen(if (it == 0) null else Swatch.entries[it - 1].color) }
+        }
+    }
+
+    /** A name led by coloured dots, so colours can be told apart in the list. */
+    private fun dotted(name: String, vararg colors: Int): CharSequence {
+        val text = SpannableStringBuilder()
+        colors.forEach { color ->
+            val start = text.length
+            text.append("● ")
+            text.setSpan(ForegroundColorSpan(color), start, start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return text.append(name)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATIONS_REQUEST && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startPairing()
+        render()
+    }
+
+    private fun choose(titleRes: Int, options: List<CharSequence>, selected: Int, onChosen: (Int) -> Unit) {
         AlertDialog.Builder(this)
             .setTitle(titleRes)
             .setSingleChoiceItems(options.toTypedArray(), selected) { dialog, which ->
@@ -225,6 +416,15 @@ class SettingsActivity : Activity() {
 
     private companion object {
         const val PICK_WALLPAPER = 1
+        const val CALENDAR_REQUEST = 2
+        const val PICK_FONT = 3
+        const val NOTIFICATIONS_REQUEST = 4
+
+        // Font files arrive under many types; some file managers only offer them as plain data.
+        val FONT_TYPES = arrayOf(
+            "font/ttf", "font/otf", "font/sfnt", "application/x-font-ttf", "application/x-font-otf",
+            "application/font-sfnt", "application/vnd.ms-opentype", "application/octet-stream",
+        )
         const val TITLE_SP = 24f
         const val HEADER_SP = 14f
         const val ROW_SP = 17f

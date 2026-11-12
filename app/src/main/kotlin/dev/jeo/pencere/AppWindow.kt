@@ -42,6 +42,41 @@ class AppWindow(
     private val host: Host? = null,
 ) : FrameLayout(context) {
 
+    /**
+     * Decides where a dragged or resized window may go, given the other windows on its desktop.
+     * Without one a window just moves where it is dragged.
+     */
+    interface Arranger {
+        fun move(window: AppWindow, x: Float, y: Float)
+        fun dropped(window: AppWindow)
+        fun resized(window: AppWindow)
+        val canResize: Boolean
+    }
+
+    var arranger: Arranger? = null
+
+    /** The window's full size, title bar included, as last set rather than as last laid out. */
+    val frameWidth: Int get() = windowWidth
+    val frameHeight: Int get() = contentHeight + titleHeight
+
+    /**
+     * Gives the window a new place and size, as tiling does; the app lays itself out for it.
+     * A filled window keeps filling the screen.
+     */
+    fun setFrame(newX: Float, newY: Float, width: Int, height: Int) {
+        if (isFilled) return
+        windowWidth = width.coerceAtLeast(minWidth)
+        // The app lays itself out for the tile at its usual size, as when filling the screen,
+        // instead of a phone layout blown up to the tile's width.
+        displayWidth = (windowWidth * 2 / 3) and 1.inv()
+        val maxContent = windowWidth * maxDisplayHeight / displayWidth
+        contentHeight = (height - titleHeight).coerceIn(titleHeight, maxContent.coerceAtLeast(titleHeight))
+        x = newX
+        y = newY
+        applySize()
+        resizeDisplay()
+    }
+
     /** Places a window that is not inside a parent view. */
     interface Host {
         val areaWidth: Int
@@ -81,7 +116,20 @@ class AppWindow(
 
     private val density = resources.displayMetrics.density
     private val prefs = LauncherPrefs(context)
-    private val titleHeight = (TITLE_HEIGHT_DP * density).toInt()
+    private var titleHeight = (TITLE_HEIGHT_DP * density).toInt()
+    private lateinit var titleBarView: LinearLayout
+    private lateinit var gripView: TextView
+    private lateinit var closeView: TextView
+    private val labelView = TextView(context)
+    private var theme: LauncherTheme? = null
+    private var active = true
+
+    /** Shown on the title bar in the tray layout, such as "ws 2". */
+    var label: String = ""
+        set(value) {
+            field = value
+            labelView.text = value
+        }
     private val buttonWidth = (BUTTON_WIDTH_DP * density).toInt()
     private val minWidth = (MIN_WIDTH_DP * density).toInt()
     private val texture = TextureView(context)
@@ -221,6 +269,8 @@ class AppWindow(
             displayWidth = saved.displayWidth
             applySize()
             resizeDisplay()
+            // Back among the other windows, which may have moved into its old place meanwhile.
+            arranger?.resized(this)
         }
         onFilledChanged()
     }
@@ -268,14 +318,83 @@ class AppWindow(
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(TITLE_COLOR)
         }
-        bar.addView(resizeHandle(), LinearLayout.LayoutParams(buttonWidth, titleHeight))
+        titleBarView = bar
+        gripView = resizeHandle()
+        closeView = closeButton()
+        labelView.visibility = View.GONE
+        labelView.gravity = Gravity.CENTER_VERTICAL
+        bar.addView(gripView, LinearLayout.LayoutParams(buttonWidth, LayoutParams.MATCH_PARENT))
         bar.addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
-        bar.addView(closeButton(), LinearLayout.LayoutParams(buttonWidth, titleHeight))
+        bar.addView(labelView, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        bar.addView(closeView, LinearLayout.LayoutParams(buttonWidth, LayoutParams.MATCH_PARENT))
         attachDrag(bar)
         return bar
     }
 
-    private fun closeButton() = TextView(context).apply {
+    /**
+     * Draws the window for the desktop layout: the plain frame of the classic layout, or a rounded
+     * card in the tray layout whose outline lights up while it is the active window.
+     */
+    fun applyTheme(newTheme: LauncherTheme, isActive: Boolean) {
+        theme = newTheme
+        active = isActive
+        val tray = newTheme.isTray
+        val newTitleHeight = ((if (tray) TRAY_TITLE_HEIGHT_DP else TITLE_HEIGHT_DP) * density).toInt()
+        if (tray) {
+            val radius = TRAY_RADIUS_DP * density
+            val border = TRAY_BORDER_DP * density
+            background = CardDrawable(newTheme.surface.withAlpha(if (isActive) ACTIVE_ALPHA else INACTIVE_ALPHA), radius)
+            // Over the content rather than behind it: the app's picture has square corners and
+            // would otherwise cover the outline at the bottom corners.
+            foreground = if (isActive) {
+                CardDrawable(Color.TRANSPARENT, radius, border, intArrayOf(newTheme.accent, newTheme.accent.darker()))
+            } else {
+                null
+            }
+            val inset = border.toInt()
+            setPadding(inset, inset, inset, inset)
+            clipToRoundRect(radius)
+            titleBarView.setBackgroundColor(Color.TRANSPARENT)
+            gripView.text = "—"
+            gripView.textSize = 16f
+            gripView.setTextColor(if (isActive) newTheme.accent else newTheme.muted)
+            gripView.typeface = android.graphics.Typeface.create(newTheme.typeface, android.graphics.Typeface.BOLD)
+            labelView.visibility = View.VISIBLE
+            labelView.typeface = newTheme.typeface
+            labelView.textSize = 14f
+            labelView.setTextColor(newTheme.muted)
+            closeView.setTextColor(newTheme.muted)
+        } else {
+            foreground = null
+            background = GradientDrawable().apply {
+                setColor(Color.BLACK)
+                setStroke((1 * density).toInt(), STROKE_COLOR)
+            }
+            setPadding(1, 1, 1, 1)
+            clipToRoundRect(0f)
+            titleBarView.setBackgroundColor(TITLE_COLOR)
+            gripView.text = "◤"
+            gripView.textSize = 11f
+            gripView.setTextColor(Color.LTGRAY)
+            gripView.typeface = android.graphics.Typeface.DEFAULT
+            labelView.visibility = View.GONE
+            closeView.setTextColor(Color.WHITE)
+        }
+        if (newTitleHeight != titleHeight) {
+            titleHeight = newTitleHeight
+            titleBarView.layoutParams = titleBarView.layoutParams.apply { height = titleHeight }
+            applySize()
+            // Before it is placed the window has no area to stay inside yet.
+            if (parent != null || host != null) keepInArea(topLimit)
+        }
+    }
+
+    fun setActive(isActive: Boolean) {
+        val current = theme ?: return
+        if (isActive != active) applyTheme(current, isActive)
+    }
+
+    private fun closeButton(): TextView = TextView(context).apply {
         text = "✕"
         gravity = Gravity.CENTER
         textSize = 12f
@@ -327,6 +446,7 @@ class AppWindow(
                 }
                 MotionEvent.ACTION_UP -> {
                     handle.removeCallbacks(hold)
+                    if (dragging && !isFilled) arranger?.dropped(this)
                     if (!dragging) {
                         handle.removeCallbacks(dispatchTaps)
                         tapCount = if (event.eventTime - lastTapTime <= doubleTapTimeout) tapCount + 1 else 1
@@ -350,17 +470,24 @@ class AppWindow(
     }
 
     /** Keeps the title bar reachable so that a window can always be dragged back. */
+    /** Stays whole on its own desktop, so a window can never be dragged onto the next one. */
     private fun moveTo(newX: Float, newY: Float) {
-        val keep = titleHeight * 2f
-        x = newX.coerceIn(keep - width, areaWidth() - keep)
-        y = newY.coerceIn(topLimit, maxTop())
+        val nx = newX.coerceIn(0f, (areaWidth() - windowWidth).toFloat().coerceAtLeast(0f))
+        val ny = newY.coerceIn(topLimit, maxTop())
+        val placer = arranger
+        if (placer != null) {
+            placer.move(this, nx, ny)
+        } else {
+            x = nx
+            y = ny
+        }
     }
 
     /**
      * Top-left grip: a tap sends Back to the app, a drag resizes the window while the
      * opposite corner stays where it is. A filled window only takes the tap.
      */
-    private fun resizeHandle() = TextView(context).apply {
+    private fun resizeHandle(): TextView = TextView(context).apply {
         text = "◤"
         gravity = Gravity.CENTER
         textSize = 11f
@@ -387,7 +514,10 @@ class AppWindow(
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (hypot(event.rawX - downX, event.rawY - downY) > touchSlop) resizing = true
-                    if (resizing && !isFilled) resizeFromTopLeft(event, downX, downY, startX, startY, startWidth, startHeight)
+                    if (resizing && !isFilled && arranger?.canResize != false) {
+                        resizeFromTopLeft(event, downX, downY, startX, startY, startWidth, startHeight)
+                        arranger?.resized(this@AppWindow)
+                    }
                 }
                 MotionEvent.ACTION_UP -> if (!resizing) perform(WindowGesture.GRIP_TAP) else if (!isFilled) resizeDisplay()
                 MotionEvent.ACTION_CANCEL -> if (resizing && !isFilled) resizeDisplay()
@@ -478,7 +608,7 @@ class AppWindow(
         scaled.recycle()
     }
 
-    /** A dead service closes every window through [ShizukuBridge], so failures need no handling. */
+    /** A dead service closes every window through [DisplayBridge], so failures need no handling. */
     private inline fun call(block: () -> Unit) {
         try {
             block()
@@ -491,6 +621,11 @@ class AppWindow(
         const val FULLSCREEN_HOLD_MS = 1500L
         val TOP_CROP_DP = mapOf("com.instagram.android" to 56, "com.zhiliaoapp.musically" to 56)
         const val TITLE_HEIGHT_DP = 24
+        const val TRAY_TITLE_HEIGHT_DP = 36
+        const val TRAY_RADIUS_DP = 20
+        const val TRAY_BORDER_DP = 2
+        const val ACTIVE_ALPHA = 0.94f
+        const val INACTIVE_ALPHA = 0.6f
         const val BUTTON_WIDTH_DP = 44
         const val MIN_WIDTH_DP = 140
         const val MIN_DISPLAY_HEIGHT_RATIO_PERCENT = 60

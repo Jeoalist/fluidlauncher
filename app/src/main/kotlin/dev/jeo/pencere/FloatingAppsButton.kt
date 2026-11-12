@@ -23,10 +23,23 @@ object FloatingAppsButton {
     private var view: View? = null
 
     /**
-     * Set while the launcher's own settings are open. The launcher stops after the settings
-     * appear, so without this the button would show up on top of them.
+     * How many of the launcher's own full screens (settings, licenses) are showing. The launcher
+     * stops after they appear, so without this the button would show up on top of them. A count,
+     * because going from one to the next starts the new one before the old one stops.
      */
-    var suppressed = false
+    private var ownScreens = 0
+
+    /** Call from a full screen of the launcher's own in onStart. */
+    fun ownScreenStarted(context: Context) {
+        ownScreens++
+        hide(context)
+    }
+
+    /** Call in onStop; back over an app in real full screen, the button returns. */
+    fun ownScreenStopped(context: Context) {
+        ownScreens = (ownScreens - 1).coerceAtLeast(0)
+        if (ownScreens == 0 && MainActivity.isCovered) show(context)
+    }
     private var shrink: Runnable? = null
 
     /** True while the launcher is covered by another app. */
@@ -37,7 +50,7 @@ object FloatingAppsButton {
     fun show(context: Context) {
         val app = context.applicationContext
         val prefs = LauncherPrefs(app)
-        if (view != null || suppressed || !prefs.floatingButton || !canShow(app)) return
+        if (view != null || ownScreens > 0 || !MainActivity.isCovered || !prefs.floatingButton || !canShow(app)) return
         val windowManager = app.getSystemService(WindowManager::class.java)
         val density = app.resources.displayMetrics.density
         val size = (SIZE_DP * density).toInt()

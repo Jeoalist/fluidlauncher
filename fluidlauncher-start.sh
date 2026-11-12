@@ -1,8 +1,9 @@
 #!/system/bin/sh
-# Starts FluidLauncher's display service. Needed once after every reboot.
+# Starts FluidLauncher's display service from a computer, after every reboot.
+# The launcher can also do this by itself once paired with Wireless debugging
+# (Settings -> Display service).
 #
-#   With ADB:     adb shell sh -s < fluidlauncher-start.sh
-#   With Shizuku: rish -c "sh /sdcard/fluidlauncher-start.sh"
+#   adb shell sh -s < fluidlauncher-start.sh
 
 package=dev.jeo.pencere
 apk=$(pm path "$package" | head -n 1 | cut -d: -f2 | tr -d '\r')

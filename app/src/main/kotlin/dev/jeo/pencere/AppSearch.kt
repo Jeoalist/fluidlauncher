@@ -4,7 +4,7 @@ private val TURKISH_FOLDS = mapOf('ç' to 'c', 'ğ' to 'g', 'ı' to 'i', 'ö' to
 private const val NO_MATCH = Int.MAX_VALUE
 
 /** Lets "cicek" match "Çiçeksepeti". */
-private fun searchKey(text: String): String = text.lowercase(TURKISH).map { TURKISH_FOLDS[it] ?: it }.joinToString("")
+internal fun searchKey(text: String): String = text.lowercase(TURKISH).map { TURKISH_FOLDS[it] ?: it }.joinToString("")
 
 private fun matchRank(label: String, needle: String): Int = when {
     label.startsWith(needle) -> 0

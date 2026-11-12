@@ -10,9 +10,9 @@ import android.widget.Toast
 /** Closes running apps that are neither in a window nor, with [keepForeground], on screen. */
 fun closeBackgroundApps(context: Context, keepForeground: Boolean) {
     val app = context.applicationContext
-    val service = ShizukuBridge.service
+    val service = DisplayBridge.service
     if (service == null) {
-        Toast.makeText(app, R.string.background_needs_shizuku, Toast.LENGTH_SHORT).show()
+        Toast.makeText(app, R.string.background_needs_service, Toast.LENGTH_SHORT).show()
         return
     }
     val home = app.packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)

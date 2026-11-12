@@ -13,12 +13,13 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 - Gerçek tam ekrandaki uygulamaların üstünde de duran uygulama düğmesi ve pencereler
 - Ayarlanabilir pencere hareketleri, ekran yenileme hızı (120/90/60 Hz) ve dil (Türkçe / English)
 - İlk açılışta etkileşimli kullanım rehberi
-- Shizuku kapalıyken sistemin kendi pencere moduna geri dönüş
+- Başka bir uygulamaya gerek yok: ekran servisi, telefonun kablosuz hata ayıklamasıyla launcher'ın içinden başlatılır
+- Ekran servisi kapalıyken sistemin kendi pencere moduna geri dönüş
 
 ## Gereksinimler
 
 - Android 13 veya üstü
-- ADB veya [Shizuku](https://github.com/RikkaApps/Shizuku) (root gerekmez)
+- Kablosuz hata ayıklama (Android 11+, bir Wi‑Fi ağına bağlıyken) ya da bilgisayarda ADB; root gerekmez
 - Derlemek için JDK 17 ve Android SDK 36
 
 ## İndirme
@@ -49,20 +50,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## Kurulum
 
 1. FluidLauncher'ı sistem ayarlarından varsayılan ana ekran yapın.
-2. Sanal ekran servisini iki yoldan biriyle başlatın:
-   - **Betikle (Shizuku gerekmez):** `adb shell sh -s < fluidlauncher-start.sh`
-   - **Shizuku ile:** Shizuku'yu başlatıp masaüstündeki "Küçültme için izin ver" düğmesine dokunun; servis otomatik başlar. İsterseniz betiği Shizuku'nun `rish` aracıyla da çalıştırabilirsiniz.
+2. Ölçekli pencereleri çizen ekran servisini başlatın. Bunun iki yolu var:
+   - **Telefondan (önerilen, bir kez yapılır):** Wi‑Fi'a bağlıyken masaüstünde boş bir yere basılı tutup Ayarlar'ı açın, **Ekran servisi → Kablosuz hata ayıklamayla eşleştir**'e dokunun. Açılan Geliştirici seçeneklerinde **Kablosuz hata ayıklama → Eşleştirme kodu ile cihaz eşle**'yi açın ve gösterilen altı haneli kodu FluidLauncher bildirimine yazın. Launcher eşleşir, servisi başlatır ve kendine "güvenli ayarları değiştirme" iznini verir. Bundan sonra telefon yeniden başlayınca Wi‑Fi'a bağlanır bağlanmaz kablosuz hata ayıklamayı kısa süreliğine açıp servisi kendisi başlatır, sonra geri kapatır.
+   - **Bilgisayardan:** `adb shell sh -s < fluidlauncher-start.sh`. Bu yol her yeniden başlatmadan sonra tekrarlanmalıdır.
 
-realme, OPPO ve OnePlus cihazlarda Shizuku "ADB'nin izni sınırlıdır" uyarısı verirse Geliştirici seçeneklerinden **İzin izlemeyi devre dışı bırak** ayarını açıp Shizuku'yu yeniden başlatın.
-
-Shizuku kapalıyken kullanılan sistem pencereleri için şu ayarlar ve bir yeniden başlatma gerekir:
+Ekran servisi kapalıyken kullanılan sistem pencereleri için şu ayarlar ve bir yeniden başlatma gerekir:
 
 ```sh
 adb shell settings put global enable_freeform_support 1
 adb shell settings put global force_resizable_activities 1
 ```
 
-Servis telefon her yeniden başladığında tekrar başlatılmalıdır; uygulama güncellenince de betiği yeniden çalıştırın. Shizuku kullanıyorsanız onu da tekrar başlatın. Rootsuz başlatmak için bilgisayar bağlantısı veya bir Wi‑Fi ağına bağlı olmak gerekir; telefonun kendi hotspot'u yetmez.
+Kablosuz hata ayıklama gerçek bir Wi‑Fi ağı ister; telefonun kendi hotspot'u yetmez. Kendiliğinden başlatma için eşleştirirken o ağda "Bu ağda her zaman izin ver" seçeneğini işaretleyin.
 
 ## Kullanım
 
@@ -88,8 +87,15 @@ Masaüstü değiştirmek için hareketi ekranın en alt çizgisinin biraz üstü
 
 ## Güvenlik notu
 
-Shizuku, izin verdiğiniz uygulamalara adb düzeyinde yetki sağlar. "İzin izlemeyi devre dışı bırak" ayarı ve varsayılan olmayan sistem ayarları cihazın korumalarını gevşetir; bunları yalnızca ne yaptığını bildiğiniz cihazlarda açın.
+Eşleştirme, launcher'a telefonun kendi adb'si üzerinden shell yetkisi verir ve launcher'ın anahtarı adb'ye güvenilir olarak kaydedilir. Launcher bu yetkiyi yalnızca ekran servisini başlatmak ve kablosuz hata ayıklamayı açıp kapatmak için kullanır. Yetkiyi geri almak için Geliştirici seçeneklerinde **Kablosuz hata ayıklama → Eşlenen cihazlar**'dan FluidLauncher'ı kaldırın. Varsayılan olmayan sistem ayarları cihazın korumalarını gevşetir; bunları yalnızca ne yaptığını bildiğiniz cihazlarda açın.
 
 ## Lisans
 
-[MIT](LICENSE). [Shizuku API](https://github.com/RikkaApps/Shizuku-API) kullanılmaktadır (MIT).
+[MIT](LICENSE).
+
+Kullanılan kütüphaneler:
+
+- [libadb-android](https://github.com/MuntashirAkon/libadb-android), Apache-2.0 seçeneğiyle
+- [spake2-java](https://github.com/MuntashirAkon/spake2-java), LGPL-3.0 (libadb-android'in bağımlılığı; kaynağı açık, değiştirilip yeniden derlenebilir)
+- [Conscrypt](https://github.com/google/conscrypt), Apache-2.0
+- [Bouncy Castle](https://www.bouncycastle.org/), MIT benzeri Bouncy Castle lisansı

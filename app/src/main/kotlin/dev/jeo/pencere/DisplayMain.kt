@@ -16,9 +16,10 @@ import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 
 /**
- * Entry point of the shell-privileged process, started with app_process by Shizuku or by
+ * Entry point of the shell-privileged process, started with app_process by the launcher over
+ * Wireless debugging or by
  * fluidlauncher-start.sh.
- * It builds its own system context like scrcpy, because Shizuku's service starter crashes on Xiaomi.
+ * It builds its own system context like scrcpy, which also works where other service starters crash, such as on Xiaomi.
  */
 object DisplayMain {
     private const val TAG = "FluidDisplay"

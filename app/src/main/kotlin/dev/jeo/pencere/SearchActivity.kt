@@ -121,7 +121,7 @@ class SearchActivity : Activity() {
 
     /** Asks the privileged service off the main thread, since it is a blocking binder call. */
     private fun loadOpenApps() {
-        val service = ShizukuBridge.service
+        val service = DisplayBridge.service
         val windows = AppWindows.current?.openApps.orEmpty() + FloatingWindows.openApps
         val catalog = AppCatalog.apps
         background.execute {
@@ -177,6 +177,8 @@ class SearchActivity : Activity() {
         }
         addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         glyph.setOnClickListener {
+            // Home is the tray desktop, so from the classic layout this switches back to it.
+            if (prefs.desktopLayout != DesktopLayout.TRAY) prefs.desktopLayout = DesktopLayout.TRAY
             startActivity(Intent(this@SearchActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             finish()
         }
@@ -219,7 +221,7 @@ class SearchActivity : Activity() {
         AppWindows.current?.closeApp(app.key)
         FloatingWindows.closeApp(app.key)
         render(results - app, holdToClose = true)
-        val service = ShizukuBridge.service ?: return
+        val service = DisplayBridge.service ?: return
         background.execute {
             try {
                 service.closePackage(app.packageName)

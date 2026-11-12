@@ -1,5 +1,9 @@
 package dev.jeo.pencere
 
+import android.content.IntentFilter
+import android.content.Context
+import android.content.BroadcastReceiver
+import android.Manifest
 import android.app.Activity
 import android.app.WallpaperManager
 import android.app.AlertDialog
@@ -38,7 +42,7 @@ class MainActivity : Activity() {
     private lateinit var root: View
     private lateinit var desktop: View
     private lateinit var appsButton: View
-    private lateinit var shizukuPill: TextView
+    private lateinit var statusPill: TextView
     private lateinit var windowLayer: FrameLayout
     private lateinit var desktopLabel: TextView
     private lateinit var windows: AppWindows
@@ -46,7 +50,7 @@ class MainActivity : Activity() {
     private var systemBars: Insets = Insets.NONE
     private var margin = 0
     private var draggingButton = false
-    private val shizukuStateListener: () -> Unit = { main.post(::renderShizukuState) }
+    private val serviceStateListener: () -> Unit = { renderServiceState() }
     private var launcherOnTop = false
     private var appContentTouched = false
 
@@ -73,7 +77,7 @@ class MainActivity : Activity() {
         root = findViewById(R.id.root)
         desktop = findViewById(R.id.desktop)
         appsButton = findViewById(R.id.appsButton)
-        shizukuPill = findViewById(R.id.shizukuPill)
+        statusPill = findViewById(R.id.statusPill)
         windowLayer = findViewById(R.id.windowLayer)
         desktopLabel = findViewById(R.id.desktopLabel)
         windows = AppWindows(windowLayer, prefs)
@@ -94,9 +98,11 @@ class MainActivity : Activity() {
             ).bottom
             excludeBackGesture()
             keepWindowsInArea()
+            tray.setInsets(systemBars)
             insets
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (::tray.isInitialized) root.post(::updateWindowBottom)
             placeAppsButton()
             excludeBackGesture()
             keepWindowsInArea()
@@ -105,16 +111,20 @@ class MainActivity : Activity() {
         setUpAppsButton()
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         panZoneHeight = (PAN_ZONE_HEIGHT_DP * resources.displayMetrics.density).toInt()
-        windows.onDesktopChanged = ::renderDesktopLabel
+        windows.onDesktopChanged = {
+            renderDesktopLabel(it)
+            tray.setDesktop(it)
+        }
         wallpaper = WallpaperView(this)
         (root as FrameLayout).addView(wallpaper, 0, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         windows.onScrolled = ::scrollWallpaper
+        setUpTray()
         windows.onFullscreenChanged = ::applyFullscreen
         renderDesktopLabel(1)
-        shizukuPill.setOnClickListener { onShizukuPillClicked() }
-        ShizukuBridge.onStateChanged = shizukuStateListener
-        ShizukuBridge.start(this)
-        renderShizukuState()
+        statusPill.setOnClickListener { onStatusClicked() }
+        DisplayBridge.addListener(serviceStateListener)
+        DisplayBridge.start(this)
+        renderServiceState()
         launcherApps.registerCallback(packageCallback, main)
         reloadApps()
     }
@@ -134,7 +144,7 @@ class MainActivity : Activity() {
      * focusable. It lets go while an app window is in use, or the keyboard would be tied to it.
      */
     private fun updateFocusable() {
-        val keepsFocus = launcherOnTop || ShizukuBridge.state == ShizukuBridge.State.READY
+        val keepsFocus = launcherOnTop || DisplayBridge.state == DisplayBridge.State.READY
         if (keepsFocus && !appContentTouched) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         } else {
@@ -155,23 +165,31 @@ class MainActivity : Activity() {
         super.onResume()
         preferChosenMode()
         wallpaper.refresh {}
+        if (prefs.themeVersion != appliedThemeVersion) applyTheme()
+        // Coming back to the desktop: the alphabet rail's letters fly in.
+        if (desktopPage == 0f) tray.flyInRail()
+        // The launcher is in front, so the copy of its button meant for covered moments goes away.
+        FloatingAppsButton.hide(this)
+        tray.refreshMinute()
+        renderNotificationCount()
+        askForCalendarOnce()
         if (!prefs.tutorialDone && tutorial == null) showTutorial()
         applySystemBars(windows.isFullscreenVisible)
     }
 
     override fun onStart() {
         super.onStart()
-        isCovered = false
+        registerReceiver(minuteReceiver, IntentFilter(Intent.ACTION_TIME_TICK))
+        startedCount++
         FloatingAppsButton.hide(this)
     }
 
     /** Something covers the launcher, such as an app in real full screen. */
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) {
-            isCovered = true
-            FloatingAppsButton.show(this)
-        }
+        unregisterReceiver(minuteReceiver)
+        startedCount--
+        if (!isChangingConfigurations) FloatingAppsButton.show(this)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -181,9 +199,11 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         // A replacement instance may already have registered itself by the time this one dies.
-        if (ShizukuBridge.onStateChanged === shizukuStateListener) ShizukuBridge.onStateChanged = {}
+        DisplayBridge.removeListener(serviceStateListener)
         if (AppWindows.current === windows) AppWindows.current = null
         windows.closeAll()
+        tray.release()
+        NotificationCounter.removeListener(notificationListener)
         launcherApps.unregisterCallback(packageCallback)
         background.shutdown()
         super.onDestroy()
@@ -198,6 +218,14 @@ class MainActivity : Activity() {
         appsButton.setOnClickListener { button ->
             val bounds = Rect().also(button::getGlobalVisibleRect)
             AppsPanel.toggle(this, bounds, newTask = false)
+        }
+        // One tap opens the apps; three switch between tiling and pushing windows. A single tap
+        // waits a moment to be sure no more taps follow.
+        var taps = 0
+        val doubleTapTimeout = ViewConfiguration.getDoubleTapTimeout().toLong()
+        val dispatchTaps = Runnable {
+            if (taps in 1..2) appsButton.performClick()
+            taps = 0
         }
         var heldToClose = false
         val closeOnHold = Runnable {
@@ -233,7 +261,14 @@ class MainActivity : Activity() {
                     if (draggingButton) {
                         saveAppsButtonPosition()
                     } else if (event.actionMasked == MotionEvent.ACTION_UP && !heldToClose) {
-                        view.performClick()
+                        view.removeCallbacks(dispatchTaps)
+                        taps++
+                        if (taps >= 3) {
+                            taps = 0
+                            toggleTiling()
+                        } else {
+                            view.postDelayed(dispatchTaps, doubleTapTimeout)
+                        }
                     }
                     draggingButton = false
                 }
@@ -291,7 +326,9 @@ class MainActivity : Activity() {
             event.rawY >= zoneBottom - panZoneHeight && event.rawY <= zoneBottom
         val onButton = event.rawX >= appsButton.x && event.rawX <= appsButton.x + appsButton.width &&
             event.rawY >= appsButton.y && event.rawY <= appsButton.y + appsButton.height
-        return inZone && !onButton && !windows.isOnTitleBar(event.rawX, event.rawY)
+        // The desktop picker scrubs through desktops itself.
+        val onPicker = tray.isOnPicker(event.rawX, event.rawY)
+        return inZone && !onButton && !onPicker && !windows.isOnTitleBar(event.rawX, event.rawY)
     }
 
     private fun updateArmedPan(event: MotionEvent) {
@@ -320,6 +357,7 @@ class MainActivity : Activity() {
     /** Moves our own wide wallpaper, or the system one where the system supports moving it. */
     private fun scrollWallpaper(progress: Float) {
         wallpaper.progress = progress
+        followDesktops(progress * (AppWindows.DESKTOP_COUNT - 1))
         val token = root.windowToken ?: return
         WallpaperManager.getInstance(this).apply {
             setWallpaperOffsetSteps(1f / (AppWindows.DESKTOP_COUNT - 1), 0f)
@@ -336,7 +374,7 @@ class MainActivity : Activity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         renderDesktopLabel(desktopNumber)
-        renderShizukuState()
+        renderServiceState()
     }
 
     /** Closes launchable apps that have no window here, leaving this launcher and the home app. */
@@ -363,32 +401,124 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderShizukuState() {
-        val state = ShizukuBridge.state
+    private fun renderServiceState() {
+        val state = DisplayBridge.state
         updateFocusable()
-        if (state != ShizukuBridge.State.READY) {
+        if (state != DisplayBridge.State.READY) {
             windows.closeAll()
             FloatingWindows.closeAll()
         }
         val message = when (state) {
-            ShizukuBridge.State.NOT_RUNNING -> R.string.shizuku_not_running
-            ShizukuBridge.State.NEEDS_PERMISSION -> R.string.shizuku_needs_permission
-            ShizukuBridge.State.CONNECTING -> R.string.shizuku_connecting
-            ShizukuBridge.State.READY -> null
+            DisplayBridge.State.NEEDS_PAIRING -> R.string.service_needs_pairing
+            DisplayBridge.State.NOT_RUNNING -> R.string.service_not_running
+            DisplayBridge.State.STARTING -> R.string.service_starting
+            DisplayBridge.State.READY -> null
         }
-        shizukuPill.visibility = if (message == null) View.GONE else View.VISIBLE
-        message?.let(shizukuPill::setText)
+        statusPill.visibility = if (message == null) View.GONE else View.VISIBLE
+        message?.let(statusPill::setText)
+        tray.setStatus(message?.let(::getString))
     }
 
-    private fun onShizukuPillClicked() {
-        when (ShizukuBridge.state) {
-            ShizukuBridge.State.NEEDS_PERMISSION -> ShizukuBridge.requestPermission()
-            ShizukuBridge.State.NOT_RUNNING ->
-                packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)?.let(::startActivity)
+    /** Not paired yet: the settings explain pairing. Paired: try starting it now. */
+    private fun onStatusClicked() {
+        when (DisplayBridge.state) {
+            DisplayBridge.State.NEEDS_PAIRING -> startActivity(Intent(this, SettingsActivity::class.java))
+            DisplayBridge.State.NOT_RUNNING -> DisplayBridge.startNow()
             else -> Unit
         }
     }
 
+
+    private fun toggleTiling() {
+        windows.tiling = !windows.tiling
+        appsButton.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        Toast.makeText(this, if (windows.tiling) R.string.tiling_on else R.string.tiling_off, Toast.LENGTH_SHORT).show()
+    }
+
+    /** In the tray layout windows stay above the desktop picker along the bottom. */
+    private fun updateWindowBottom() {
+        windows.bottomLimit = if (LauncherTheme.load(prefs).isTray) tray.pickerTop - margin / 2f else 0f
+    }
+
+    private fun askToOpenSettings() {
+        AlertDialog.Builder(this)
+            .setMessage(R.string.open_settings_question)
+            .setPositiveButton(R.string.open) { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    // ---- Tray layout ---------------------------------------------------------------------------
+
+    private lateinit var tray: TrayDesktop
+    private var appliedThemeVersion = Long.MIN_VALUE
+    private val notificationListener: () -> Unit = { main.post(::renderNotificationCount) }
+
+    private val minuteReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = tray.refreshMinute()
+    }
+
+    private fun setUpTray() {
+        tray = TrayDesktop(this, prefs, object : TrayDesktop.Actions {
+            override fun onDesktopPicked(number: Int) = windows.goToDesktop(number)
+
+
+            override fun onStatusClicked() = this@MainActivity.onStatusClicked()
+
+            override fun onEmptySpotHeld() = askToOpenSettings()
+        })
+        val layers = root as FrameLayout
+        layers.addView(tray.backdrop, layers.indexOfChild(desktop) + 1, matchParent())
+        layers.addView(tray.chrome, layers.indexOfChild(windowLayer) + 1, matchParent())
+        NotificationCounter.addListener(notificationListener)
+        applyTheme()
+    }
+
+    /** How far the desktops have moved, in desktops, for parts that belong to the first one. */
+    private var desktopPage = 0f
+
+    /**
+     * In the tray layout the tray lives on the first desktop and the apps button on the others,
+     * where there is no tray to open apps from; both fade with the slide between them.
+     */
+    private fun followDesktops(page: Float) {
+        desktopPage = page
+        tray.followDesktops(page)
+        val tray = LauncherTheme.load(prefs).isTray
+        val shown = if (tray) page.coerceIn(0f, 1f) else 1f
+        appsButton.alpha = shown
+        appsButton.visibility = if (shown > 0f) View.VISIBLE else View.INVISIBLE
+    }
+
+    private fun matchParent() = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+
+    /** Switches between the classic and tray desktops and restyles windows to match. */
+    private fun applyTheme() {
+        appliedThemeVersion = prefs.themeVersion
+        val theme = LauncherTheme.load(prefs)
+        desktop.visibility = if (theme.isTray) View.GONE else View.VISIBLE
+        tray.visible = theme.isTray
+        tray.applyTheme(theme)
+        tray.setDesktop(desktopNumber)
+        windows.theme = theme
+        windows.firstDesktopIsHome = theme.isTray
+        root.post(::updateWindowBottom)
+        followDesktops(desktopPage)
+    }
+
+    private fun renderNotificationCount() = tray.refreshNotificationDots()
+
+    /** The tray shows the next calendar event; the permission is asked for once, when it first appears. */
+    private fun askForCalendarOnce() {
+        if (!LauncherTheme.load(prefs).isTray || prefs.calendarAsked || CalendarEvents.canRead(this)) return
+        prefs.calendarAsked = true
+        requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR), CALENDAR_REQUEST)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CALENDAR_REQUEST) tray.refreshMinute()
+    }
 
     /** Holding an empty spot on the desktop offers to open the launcher settings. */
     private fun setUpDesktopHold() {
@@ -397,11 +527,7 @@ class MainActivity : Activity() {
         var downY = 0f
         val askToOpenSettings = Runnable {
             desktop.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            AlertDialog.Builder(this)
-                .setMessage(R.string.open_settings_question)
-                .setPositiveButton(R.string.open) { _, _ -> startActivity(Intent(this, SettingsActivity::class.java)) }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
+            askToOpenSettings()
         }
         desktop.setOnTouchListener { view, event ->
             when (event.actionMasked) {
@@ -419,14 +545,19 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        /**
+         * Launcher screens between start and stop. A count rather than a flag, because when the
+         * launcher is recreated the old screen can stop after the new one has started.
+         */
+        private var startedCount = 0
+
         /** True while another app covers the launcher. */
-        var isCovered = false
-            private set
-        private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        val isCovered get() = startedCount == 0
         const val CLOSE_BACKGROUND_HOLD_MS = 1500L
         private const val SETTINGS_HOLD_MS = 1500L
         private const val PAN_ZONE_HEIGHT_DP = 200
         private const val PAN_ZONE_WIDTH_RATIO = 0.6f
         private const val PAN_DIRECTION_RATIO = 1.5f
+        private const val CALENDAR_REQUEST = 2
     }
 }

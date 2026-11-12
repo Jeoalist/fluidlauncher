@@ -12,7 +12,7 @@ class DisplayServiceProvider : ContentProvider() {
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         if (method != METHOD_REGISTER || Binder.getCallingUid() != SHELL_UID) return null
         val service = extras?.getBinder(KEY_SERVICE) ?: return null
-        return Bundle().apply { putBinder(KEY_CLIENT, ShizukuBridge.attach(service)) }
+        return Bundle().apply { putBinder(KEY_CLIENT, DisplayBridge.attach(service)) }
     }
 
     override fun onCreate() = true
