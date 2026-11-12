@@ -30,18 +30,15 @@ class LauncherPrefs(context: Context) {
         get() = enumOr(KEY_LAYOUT, DesktopLayout.TRAY)
         set(value) = bumpTheme { putString(KEY_LAYOUT, value.name) }
 
-    /** Picking a palette drops hand-picked colours, so the palette shows as designed. */
-    var palette: Palette
-        get() = enumOr(KEY_PALETTE, Palette.MEADOW)
-        set(value) = bumpTheme { putString(KEY_PALETTE, value.name).remove(KEY_ACCENT).remove(KEY_CLOCK) }
+    /** The chosen theme: "preset:<name>" for a ready-made one or "custom:<id>" for one made by hand. */
+    var themeKey: String
+        get() = prefs.getString(KEY_THEME, null) ?: (Palette.KEY_PREFIX + (prefs.getString(KEY_PALETTE, null) ?: Palette.MEADOW.name))
+        set(value) = bumpTheme { putString(KEY_THEME, value) }
 
-    var accentColor: Int?
-        get() = if (prefs.contains(KEY_ACCENT)) prefs.getInt(KEY_ACCENT, 0) else null
-        set(value) = bumpTheme { if (value == null) remove(KEY_ACCENT) else putInt(KEY_ACCENT, value) }
-
-    var clockColor: Int?
-        get() = if (prefs.contains(KEY_CLOCK)) prefs.getInt(KEY_CLOCK, 0) else null
-        set(value) = bumpTheme { if (value == null) remove(KEY_CLOCK) else putInt(KEY_CLOCK, value) }
+    /** The themes made in the theme editor, as a JSON array. */
+    var customThemesJson: String
+        get() = prefs.getString(KEY_CUSTOM_THEMES, "[]")!!
+        set(value) = bumpTheme { putString(KEY_CUSTOM_THEMES, value) }
 
     var iconShade: IconShade
         get() = enumOr(KEY_ICON_SHADE, IconShade.FULL)
@@ -164,8 +161,8 @@ class LauncherPrefs(context: Context) {
         const val KEY_WALLPAPER_VERSION = "wallpaper_version"
         const val KEY_LAYOUT = "desktop_layout"
         const val KEY_PALETTE = "palette"
-        const val KEY_ACCENT = "accent_color"
-        const val KEY_CLOCK = "clock_color"
+        const val KEY_THEME = "theme"
+        const val KEY_CUSTOM_THEMES = "custom_themes"
         const val KEY_FONT = "font"
         const val KEY_TILING = "tiling"
         const val KEY_FULLSCREEN_APPS = "fullscreen_apps"

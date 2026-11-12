@@ -156,10 +156,10 @@ class TrayDesktop(
         }
         val time = DateFormat.getTimeInstance(DateFormat.SHORT, locale)
         val line = SpannableStringBuilder()
-        line.appendStyled("▎ ", theme.palette.icons[3])
+        line.appendStyled("▎ ", theme.line)
         line.appendStyled(next.title, theme.text)
         line.appendStyled("  ·  ", theme.muted)
-        line.appendStyled("${time.format(Date(next.begin))}–${time.format(Date(next.end))}", theme.palette.icons[3])
+        line.appendStyled("${time.format(Date(next.begin))}–${time.format(Date(next.end))}", theme.line)
         event.text = line
         event.visibility = View.VISIBLE
     }

@@ -260,15 +260,27 @@ class SettingsActivity : Activity() {
                 prefs.desktopLayout = DesktopLayout.entries[it]
             }
         }
-        val theme = LauncherTheme.load(prefs)
-        val palette = prefs.palette
-        addRow(getString(R.string.setting_palette), getString(palette.labelRes)) {
-            choose(R.string.setting_palette, Palette.entries.map { dotted(getString(it.labelRes), it.clock, it.accent) }, palette.ordinal) {
-                prefs.palette = Palette.entries[it]
+        val themes = ThemeStore.all(this, prefs)
+        val chosen = ThemeStore.chosen(this, prefs)
+        addRow(getString(R.string.setting_theme), chosen.name) {
+            val options = themes.map { dotted(it.name, it.surface, it.accent, it.clock) } +
+                getString(R.string.theme_create) + getString(R.string.theme_create_from_wallpaper)
+            choose(R.string.setting_theme, options, themes.indexOfFirst { it.key == chosen.key }) {
+                when (it) {
+                    themes.size -> startActivity(Intent(this, ThemeEditorActivity::class.java))
+                    themes.size + 1 -> startActivity(
+                        Intent(this, ThemeEditorActivity::class.java).putExtra(ThemeEditorActivity.EXTRA_FROM_WALLPAPER, true),
+                    )
+                    else -> prefs.themeKey = themes[it].key
+                }
             }
         }
-        addColorRow(R.string.setting_accent, theme.accent, prefs.accentColor == null) { prefs.accentColor = it }
-        addColorRow(R.string.setting_clock_color, theme.clock, prefs.clockColor == null) { prefs.clockColor = it }
+        // Ready-made themes stay as they are; editing one starts a custom copy of it.
+        addRow(getString(R.string.setting_theme_edit), getString(if (chosen.isCustom) R.string.theme_edit_custom else R.string.theme_edit_copy)) {
+            val edit = Intent(this, ThemeEditorActivity::class.java)
+            if (chosen.isCustom) edit.putExtra(ThemeEditorActivity.EXTRA_EDIT, chosen.key)
+            startActivity(edit)
+        }
         addFontRows()
         val grid = prefs.panelGrid
         val listChoices = listOf(R.string.panel_as_list, R.string.panel_as_grid)
@@ -333,21 +345,6 @@ class SettingsActivity : Activity() {
             .putExtra(Intent.EXTRA_MIME_TYPES, FONT_TYPES)
         @Suppress("DEPRECATION")
         startActivityForResult(pick, PICK_FONT)
-    }
-
-    /** First choice follows the palette; the rest are fixed colours. */
-    private fun addColorRow(titleRes: Int, current: Int, followsPalette: Boolean, onChosen: (Int?) -> Unit) {
-        val currentName = if (followsPalette) {
-            getString(R.string.color_from_palette)
-        } else {
-            Swatch.entries.firstOrNull { it.color == current }?.let { getString(it.labelRes) } ?: "#%06X".format(current and 0xFFFFFF)
-        }
-        addRow(getString(titleRes), currentName) {
-            val options = listOf<CharSequence>(getString(R.string.color_from_palette)) +
-                Swatch.entries.map { dotted(getString(it.labelRes), it.color) }
-            val selected = if (followsPalette) 0 else Swatch.entries.indexOfFirst { it.color == current } + 1
-            choose(titleRes, options, selected) { onChosen(if (it == 0) null else Swatch.entries[it - 1].color) }
-        }
     }
 
     /** A name led by coloured dots, so colours can be told apart in the list. */

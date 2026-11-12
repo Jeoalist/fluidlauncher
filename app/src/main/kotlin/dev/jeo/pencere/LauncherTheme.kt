@@ -1,9 +1,13 @@
 package dev.jeo.pencere
 
+import android.content.Context
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Typeface
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 
 /** How the desktop is laid out: the original centred clock, or the tray with panels. */
 enum class DesktopLayout(val labelRes: Int) {
@@ -22,6 +26,7 @@ enum class Palette(
     /** Extra colours; the fourth marks the calendar line under the clock. */
     val icons: List<Int>,
 ) {
+
     MEADOW(
         R.string.palette_meadow,
         clock = 0xFFA6E3A1.toInt(),
@@ -58,20 +63,14 @@ enum class Palette(
         muted = 0xFF8A8A8F.toInt(),
         icons = listOf(0xFFE5E5E5, 0xFFE5E5E5, 0xFFE5E5E5, 0xFFE5E5E5, 0xFFE5E5E5).map(Long::toInt),
     ),
-}
+    ;
 
-/** Colours offered when the accent or clock colour is set by hand. */
-enum class Swatch(val labelRes: Int, val color: Int) {
-    GREEN(R.string.color_green, 0xFFA6E3A1.toInt()),
-    MINT(R.string.color_mint, 0xFF8FD6B4.toInt()),
-    YELLOW(R.string.color_yellow, 0xFFEBCB8B.toInt()),
-    ORANGE(R.string.color_orange, 0xFFF0A35E.toInt()),
-    RED(R.string.color_red, 0xFFE06C75.toInt()),
-    PINK(R.string.color_pink, 0xFFF5C2E7.toInt()),
-    PURPLE(R.string.color_purple, 0xFFCBA6F7.toInt()),
-    BLUE(R.string.color_blue, 0xFF82AAFF.toInt()),
-    CYAN(R.string.color_cyan, 0xFF88C0D0.toInt()),
-    WHITE(R.string.color_white, 0xFFECEFF4.toInt()),
+    /** This ready-made theme as colours a custom theme can start from. */
+    fun colors(name: String) = ThemeColors(KEY_PREFIX + this.name, name, clock, accent, surface, text, muted, icons[3])
+
+    companion object {
+        const val KEY_PREFIX = "preset:"
+    }
 }
 
 /** How strongly app icons in the tray take on the theme's colours. */
@@ -88,14 +87,79 @@ enum class FontChoice(val labelRes: Int, val typeface: Typeface) {
 }
 
 /** Everything the tray layout and its windows are drawn with. */
-data class LauncherTheme(
-    val layout: DesktopLayout,
-    val palette: Palette,
+/**
+ * The colours of a theme, ready-made or made by hand in the theme editor. [key] is how the
+ * settings refer to it: "preset:MEADOW" for a ready-made one, "custom:<id>" for a custom one.
+ */
+data class ThemeColors(
+    val key: String,
+    val name: String,
     val clock: Int,
     val accent: Int,
+    val surface: Int,
+    val text: Int,
+    val muted: Int,
+    /** The bar and time of the calendar line under the clock. */
+    val line: Int,
+) {
+    val isCustom get() = key.startsWith(ThemeStore.CUSTOM_PREFIX)
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("key", key).put("name", name).put("clock", clock).put("accent", accent)
+        .put("surface", surface).put("text", text).put("muted", muted).put("line", line)
+
+    companion object {
+        fun fromJson(json: JSONObject) = ThemeColors(
+            json.getString("key"), json.getString("name"), json.getInt("clock"), json.getInt("accent"),
+            json.getInt("surface"), json.getInt("text"), json.getInt("muted"), json.getInt("line"),
+        )
+    }
+}
+
+/** Ready-made themes and the ones people make, and which one is chosen. */
+object ThemeStore {
+    const val CUSTOM_PREFIX = "custom:"
+
+    fun presets(context: Context) = Palette.entries.map { it.colors(context.getString(it.labelRes)) }
+
+    fun custom(prefs: LauncherPrefs): List<ThemeColors> {
+        val array = runCatching { JSONArray(prefs.customThemesJson) }.getOrNull() ?: return emptyList()
+        return (0 until array.length()).mapNotNull { runCatching { ThemeColors.fromJson(array.getJSONObject(it)) }.getOrNull() }
+    }
+
+    fun all(context: Context, prefs: LauncherPrefs) = presets(context) + custom(prefs)
+
+    /** The chosen theme; one that was deleted falls back to the first ready-made theme. */
+    fun chosen(context: Context, prefs: LauncherPrefs): ThemeColors {
+        val key = prefs.themeKey
+        return all(context, prefs).firstOrNull { it.key == key } ?: presets(context).first()
+    }
+
+    /** Adds or replaces a custom theme and chooses it. */
+    fun save(prefs: LauncherPrefs, theme: ThemeColors) {
+        val themes = custom(prefs).filter { it.key != theme.key } + theme
+        prefs.customThemesJson = JSONArray(themes.map { it.toJson() }).toString()
+        prefs.themeKey = theme.key
+    }
+
+    fun delete(prefs: LauncherPrefs, key: String) {
+        prefs.customThemesJson = JSONArray(custom(prefs).filter { it.key != key }.map { it.toJson() }).toString()
+        if (prefs.themeKey == key) prefs.themeKey = Palette.KEY_PREFIX + Palette.MEADOW.name
+    }
+
+    fun newKey() = CUSTOM_PREFIX + UUID.randomUUID().toString()
+}
+
+data class LauncherTheme(
+    val layout: DesktopLayout,
+    val colors: ThemeColors,
     val typeface: Typeface,
     val iconShade: IconShade,
 ) {
+    val clock get() = colors.clock
+    val accent get() = colors.accent
+    val line get() = colors.line
+
     /**
      * A duotone shader for icons: each pixel's brightness picks a colour between the theme's
      * surface (dark parts) and its clock colour (light parts). Weaker shades mix in the original
@@ -120,24 +184,18 @@ data class LauncherTheme(
         ColorMatrixColorFilter(FloatArray(20) { identity[it] * (1 - strength) + duotone[it] * strength })
     }
 
-    val surface get() = palette.surface
-    val text get() = palette.text
-    val muted get() = palette.muted
+    val surface get() = colors.surface
+    val text get() = colors.text
+    val muted get() = colors.muted
     val isTray get() = layout == DesktopLayout.TRAY
 
     companion object {
-        /** Hand-picked colours override the palette's own; a new palette clears them. */
-        fun load(prefs: LauncherPrefs): LauncherTheme {
-            val palette = prefs.palette
-            return LauncherTheme(
-                layout = prefs.desktopLayout,
-                palette = palette,
-                clock = prefs.clockColor ?: palette.clock,
-                accent = prefs.accentColor ?: palette.accent,
-                typeface = FontStore.typeface(prefs.appContext, prefs.fontKey),
-                iconShade = prefs.iconShade,
-            )
-        }
+        fun load(prefs: LauncherPrefs) = LauncherTheme(
+            layout = prefs.desktopLayout,
+            colors = ThemeStore.chosen(prefs.appContext, prefs),
+            typeface = FontStore.typeface(prefs.appContext, prefs.fontKey),
+            iconShade = prefs.iconShade,
+        )
     }
 }
 
