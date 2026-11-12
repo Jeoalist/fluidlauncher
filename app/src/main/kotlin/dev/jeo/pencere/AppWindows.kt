@@ -27,6 +27,9 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
     /** Called with the 1-based number of the desktop being shown. */
     var onDesktopChanged: (Int) -> Unit = {}
 
+    /** Called while the desktops move, with 0 at the first desktop and 1 at the last. */
+    var onScrolled: (Float) -> Unit = {}
+
     /** Called when a filled window comes into or leaves the visible desktop. */
     var onFullscreenChanged: (Boolean) -> Unit = {}
 
@@ -75,7 +78,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     /** Dragging right shows the page to the right; there is nothing left of the first page. */
     fun pan(dragDistance: Float) {
-        applyOffset((panStart + dragDistance).coerceAtLeast(0f))
+        applyOffset((panStart + dragDistance).coerceIn(0f, lastPageOffset()))
     }
 
     fun endPan(dragDistance: Float) {
@@ -86,7 +89,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
             dragDistance < -threshold -> -1
             else -> 0
         }
-        val page = ((panStart / pageWidth).roundToInt() + turn).coerceAtLeast(0)
+        val page = ((panStart / pageWidth).roundToInt() + turn).coerceIn(0, DESKTOP_COUNT - 1)
         onDesktopChanged(page + 1)
         panAnimator = ValueAnimator.ofFloat(offset, page * pageWidth).apply {
             duration = PAGE_TURN_MS
@@ -103,7 +106,11 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val delta = value - offset
         offset = value
         windows.forEach { it.x -= delta }
+        val last = lastPageOffset()
+        onScrolled(if (last > 0f) offset / last else 0f)
     }
+
+    private fun lastPageOffset() = layer.width * (DESKTOP_COUNT - 1f)
 
     init {
         layer.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -120,6 +127,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
     private fun onRotated(scaleX: Float, scaleY: Float) {
         panAnimator?.cancel()
         offset *= scaleX
+        val last = lastPageOffset()
+        onScrolled(if (last > 0f) offset / last else 0f)
         windows.forEach { it.scaleForRotation(scaleX, scaleY) }
     }
 
@@ -185,6 +194,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     companion object {
         const val CASCADE_LENGTH = 5
+        const val DESKTOP_COUNT = 5
         private const val CASCADE_STEP = 0.05f
         private const val PAGE_TURN_THRESHOLD = 0.15f
         private const val PAGE_TURN_MS = 220L

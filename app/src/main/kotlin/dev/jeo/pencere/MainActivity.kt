@@ -1,6 +1,7 @@
 package dev.jeo.pencere
 
 import android.app.Activity
+import android.app.WallpaperManager
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.Configuration
@@ -105,6 +106,9 @@ class MainActivity : Activity() {
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop
         panZoneHeight = (PAN_ZONE_HEIGHT_DP * resources.displayMetrics.density).toInt()
         windows.onDesktopChanged = ::renderDesktopLabel
+        wallpaper = WallpaperView(this)
+        (root as FrameLayout).addView(wallpaper, 0, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        windows.onScrolled = ::scrollWallpaper
         windows.onFullscreenChanged = ::applyFullscreen
         renderDesktopLabel(1)
         shizukuPill.setOnClickListener { onShizukuPillClicked() }
@@ -150,6 +154,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         preferChosenMode()
+        wallpaper.refresh {}
         if (!prefs.tutorialDone && tutorial == null) showTutorial()
         applySystemBars(windows.isFullscreenVisible)
     }
@@ -310,6 +315,17 @@ class MainActivity : Activity() {
     }
 
     private var desktopNumber = 1
+    private lateinit var wallpaper: WallpaperView
+
+    /** Moves our own wide wallpaper, or the system one where the system supports moving it. */
+    private fun scrollWallpaper(progress: Float) {
+        wallpaper.progress = progress
+        val token = root.windowToken ?: return
+        WallpaperManager.getInstance(this).apply {
+            setWallpaperOffsetSteps(1f / (AppWindows.DESKTOP_COUNT - 1), 0f)
+            setWallpaperOffsets(token, progress, 0.5f)
+        }
+    }
 
     private fun renderDesktopLabel(number: Int) {
         desktopNumber = number

@@ -21,6 +21,12 @@ import kotlin.math.hypot
  */
 object FloatingAppsButton {
     private var view: View? = null
+
+    /**
+     * Set while the launcher's own settings are open. The launcher stops after the settings
+     * appear, so without this the button would show up on top of them.
+     */
+    var suppressed = false
     private var shrink: Runnable? = null
 
     /** True while the launcher is covered by another app. */
@@ -31,7 +37,7 @@ object FloatingAppsButton {
     fun show(context: Context) {
         val app = context.applicationContext
         val prefs = LauncherPrefs(app)
-        if (view != null || !prefs.floatingButton || !canShow(app)) return
+        if (view != null || suppressed || !prefs.floatingButton || !canShow(app)) return
         val windowManager = app.getSystemService(WindowManager::class.java)
         val density = app.resources.displayMetrics.density
         val size = (SIZE_DP * density).toInt()

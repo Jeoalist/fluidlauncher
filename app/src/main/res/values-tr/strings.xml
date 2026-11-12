@@ -84,4 +84,10 @@
     <string name="tutorial_settings_body">Masaüstünde boş bir yere 1,5 saniye basılı tutunca ayarlar açılır. Hareketlerin ne yapacağını, pencere boyutunu ve ekran yenileme hızını oradan değiştirebilirsin.\n\nŞimdi boş bir yere basılı tut.</string>
     <string name="tutorial_done_title">Hazırsın!</string>
     <string name="tutorial_done_body">Bu rehberi istediğin zaman Ayarlar → Rehberi tekrar göster ile yeniden açabilirsin.</string>
+    <string name="setting_wide_wallpaper">Kayan duvar kağıdı (16:9)</string>
+    <string name="wide_wallpaper_none">Yok: sistem duvar kağıdı kullanılıyor</string>
+    <string name="wide_wallpaper_set">Açık: 5 masaüstü boyunca kayar</string>
+    <string name="wide_wallpaper_pick">Başka bir resim seç</string>
+    <string name="wide_wallpaper_remove">Kaldır, sistem duvar kağıdını kullan</string>
+    <string name="wide_wallpaper_failed">Resim yüklenemedi</string>
 </resources>

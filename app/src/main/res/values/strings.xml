@@ -84,4 +84,10 @@
     <string name="tutorial_settings_body">Hold an empty spot on the desktop for 1.5 seconds to open the settings. There you can change what gestures do, the window size and the screen refresh rate.\n\nNow hold an empty spot.</string>
     <string name="tutorial_done_title">You\'re all set!</string>
     <string name="tutorial_done_body">You can open this guide again any time from Settings → Show the guide again.</string>
+    <string name="setting_wide_wallpaper">Scrolling wallpaper (16:9)</string>
+    <string name="wide_wallpaper_none">None: the system wallpaper is used</string>
+    <string name="wide_wallpaper_set">On: moves across the 5 desktops</string>
+    <string name="wide_wallpaper_pick">Pick another image</string>
+    <string name="wide_wallpaper_remove">Remove, use the system wallpaper</string>
+    <string name="wide_wallpaper_failed">Could not load the image</string>
 </resources>

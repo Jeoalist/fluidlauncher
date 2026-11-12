@@ -19,6 +19,11 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_TUTORIAL_DONE, false)
         set(value) = prefs.edit().putBoolean(KEY_TUTORIAL_DONE, value).apply()
 
+    /** Changes whenever the scrolling wallpaper is picked or removed, so the desktop reloads it. */
+    var wallpaperVersion: Long
+        get() = prefs.getLong(KEY_WALLPAPER_VERSION, 0L)
+        set(value) = prefs.edit().putLong(KEY_WALLPAPER_VERSION, value).apply()
+
     var windowSize: WindowSize
         get() = WindowSize.valueOf(prefs.getString(KEY_SIZE, WindowSize.MEDIUM.name)!!)
         set(value) = prefs.edit().putString(KEY_SIZE, value.name).apply()
@@ -82,6 +87,7 @@ class LauncherPrefs(context: Context) {
         const val KEY_FLOATING_BUTTON = "floating_button"
         const val KEY_REFRESH_RATE = "refresh_rate"
         const val KEY_TUTORIAL_DONE = "tutorial_done"
+        const val KEY_WALLPAPER_VERSION = "wallpaper_version"
         const val KEY_FLOATING_X = "floating_x"
         const val KEY_FLOATING_Y = "floating_y"
         const val SEPARATOR = "|"

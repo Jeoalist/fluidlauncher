@@ -14,6 +14,7 @@ import android.view.WindowInsets
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 /** The launcher's own settings, opened by holding an empty spot on the desktop. */
 class SettingsActivity : Activity() {
@@ -21,11 +22,22 @@ class SettingsActivity : Activity() {
     private lateinit var list: LinearLayout
     private var padding = 0
 
+    override fun onStart() {
+        super.onStart()
+        FloatingAppsButton.suppressed = true
+        FloatingAppsButton.hide(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        FloatingAppsButton.suppressed = false
+        // Back over an app in real full screen, which needs the button again.
+        if (MainActivity.isCovered) FloatingAppsButton.show(this)
+    }
+
     override fun onResume() {
         super.onResume()
         preferChosenMode()
-        // The launcher is behind this screen, but its floating button would only be in the way here.
-        FloatingAppsButton.hide(this)
         render()
     }
 
@@ -110,6 +122,17 @@ class SettingsActivity : Activity() {
             prefs.tutorialDone = false
             finish()
         }
+        val hasWide = ScrollingWallpaper.exists(this)
+        addRow(getString(R.string.setting_wide_wallpaper), getString(if (hasWide) R.string.wide_wallpaper_set else R.string.wide_wallpaper_none)) {
+            if (!hasWide) {
+                pickWideWallpaper()
+            } else {
+                val choices = listOf(R.string.wide_wallpaper_pick, R.string.wide_wallpaper_remove)
+                choose(R.string.setting_wide_wallpaper, choices.map(::getString), -1) {
+                    if (it == 0) pickWideWallpaper() else ScrollingWallpaper.remove(this)
+                }
+            }
+        }
         addRow(getString(R.string.wallpaper), null) {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), getString(R.string.wallpaper)))
         }
@@ -129,6 +152,28 @@ class SettingsActivity : Activity() {
                 localeManager.applicationLocales = LocaleList.forLanguageTags(tags[it])
             }
         }
+    }
+
+    private fun pickWideWallpaper() {
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*")
+        @Suppress("DEPRECATION")
+        startActivityForResult(pick, PICK_WALLPAPER)
+    }
+
+    @Deprecated("Plain activities have no result API replacement")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data
+        if (requestCode != PICK_WALLPAPER || resultCode != RESULT_OK || uri == null) return
+        // Copying a large image takes a moment; the row shows the result once it is done.
+        Thread {
+            val saved = runCatching { ScrollingWallpaper.save(this, uri) }.isSuccess
+            runOnUiThread {
+                if (!saved) Toast.makeText(this, R.string.wide_wallpaper_failed, Toast.LENGTH_SHORT).show()
+                if (!isDestroyed) render()
+            }
+        }.start()
     }
 
     private fun choose(titleRes: Int, options: List<String>, selected: Int, onChosen: (Int) -> Unit) {
@@ -179,6 +224,7 @@ class SettingsActivity : Activity() {
     }
 
     private companion object {
+        const val PICK_WALLPAPER = 1
         const val TITLE_SP = 24f
         const val HEADER_SP = 14f
         const val ROW_SP = 17f
