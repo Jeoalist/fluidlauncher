@@ -20,6 +20,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -68,7 +69,7 @@ class AppWindow(
         val newWidth = width.coerceAtLeast(minWidth)
         // The app lays itself out for the tile at its usual size, as when filling the screen,
         // instead of a phone layout blown up to the tile's width.
-        val newDisplayWidth = (newWidth * 2 / 3) and 1.inv()
+        val newDisplayWidth = zoomed(newWidth * 2 / 3)
         val maxContent = newWidth * maxDisplayHeight / newDisplayWidth
         val newContent = (height - titleHeight).coerceIn(titleHeight, maxContent.coerceAtLeast(titleHeight))
         if (x != newX) x = newX
@@ -124,7 +125,7 @@ class AppWindow(
     data class DisplaySpec(val width: Int, val height: Int, val dpi: Int)
 
     /** Size to return to; [x] is relative to the filled window so paging cannot make it stale. */
-    private data class Restore(val x: Float, val y: Float, val width: Int, val height: Int, val displayWidth: Int)
+    private data class Restore(val x: Float, val y: Float, val width: Int, val height: Int, val displayWidth: Int, val zoom: Float)
 
     private val density = resources.displayMetrics.density
     private val prefs = LauncherPrefs(context)
@@ -133,6 +134,17 @@ class AppWindow(
     private lateinit var column: LinearLayout
     private lateinit var gripView: TextView
     private lateinit var closeView: TextView
+    private lateinit var scaleButton: TextView
+    private lateinit var scalePanel: LinearLayout
+    private lateinit var scaleBar: SeekBar
+    private lateinit var scaleLabel: TextView
+    private lateinit var scaleReset: TextView
+
+    /**
+     * The app's size on top of what the window would show anyway, chosen with the scale slider
+     * and kept per app: 2 draws it twice as big, so it gets a display half as wide.
+     */
+    private var zoom = prefs.appZoom(app.key)
     private val labelView = TextView(context)
     private var theme: LauncherTheme? = null
     private var active = true
@@ -151,7 +163,7 @@ class AppWindow(
     var displayId = NO_DISPLAY
         private set
     private var windowWidth = initialWidth.coerceAtLeast(minWidth)
-    private var displayWidth = spec.width
+    private var displayWidth = zoomed(spec.width)
     private var restore: Restore? = null
     private var topLimit = 0f
     private var bottomLimit = 0f
@@ -171,7 +183,11 @@ class AppWindow(
     init {
         column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         column.addView(titleBar(), LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, titleHeight))
-        column.addView(texture, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        // The scale slider lies over the top of the app, right under the title bar.
+        val content = FrameLayout(context)
+        content.addView(texture, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        content.addView(scalePanel(), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        column.addView(content, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 
         background = GradientDrawable().apply {
@@ -222,6 +238,87 @@ class AppWindow(
         val params = titleBarView.layoutParams
         column.removeView(titleBarView)
         column.addView(titleBarView, if (atBottom) 1 else 0, params)
+        // The slider stays next to the title bar.
+        (scalePanel.layoutParams as LayoutParams).gravity = if (atBottom) Gravity.BOTTOM else Gravity.TOP
+        scalePanel.requestLayout()
+    }
+
+    /** Width of the app's display for a window that would show it [base] pixels wide at usual size. */
+    private fun zoomed(base: Int) = ((base / zoom).roundToInt() and 1.inv()).coerceAtLeast(MIN_DISPLAY_WIDTH)
+
+    private fun scalePanel(): View {
+        val panel = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            isClickable = true
+            setBackgroundColor(TITLE_COLOR)
+            val pad = (8 * density).toInt()
+            setPadding(pad, pad / 2, pad / 2, pad / 2)
+        }
+        scalePanel = panel
+        scaleLabel = TextView(context).apply {
+            gravity = Gravity.CENTER
+            textSize = 12f
+            setTextColor(Color.WHITE)
+        }
+        scaleBar = SeekBar(context).apply {
+            max = ((MAX_ZOOM - MIN_ZOOM) / ZOOM_STEP).roundToInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, progress: Int, fromUser: Boolean) {
+                    showZoom(zoomAt(progress))
+                }
+
+                override fun onStartTrackingTouch(bar: SeekBar) = Unit
+
+                // Every new display size makes the app lay out again, so it waits for the finger.
+                override fun onStopTrackingTouch(bar: SeekBar) = setZoom(zoomAt(bar.progress))
+            })
+        }
+        scaleReset = TextView(context).apply {
+            text = "↺"
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            contentDescription = context.getString(R.string.window_scale_reset)
+            setOnClickListener {
+                setZoom(1f)
+                scaleBar.progress = progressOf(1f)
+            }
+        }
+        panel.addView(scaleLabel, LinearLayout.LayoutParams((44 * density).toInt(), LayoutParams.MATCH_PARENT))
+        panel.addView(scaleBar, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        panel.addView(scaleReset, LinearLayout.LayoutParams(buttonWidth, (36 * density).toInt()))
+        return panel
+    }
+
+    private fun zoomAt(progress: Int) = MIN_ZOOM + progress * ZOOM_STEP
+
+    private fun progressOf(value: Float) = ((value - MIN_ZOOM) / ZOOM_STEP).roundToInt()
+
+    private fun showZoom(value: Float) {
+        scaleLabel.text = "%${(value * 100).roundToInt()}"
+    }
+
+    private fun toggleScalePanel() {
+        val show = scalePanel.visibility != View.VISIBLE
+        if (show) {
+            scaleBar.progress = progressOf(zoom)
+            showZoom(zoom)
+        }
+        scalePanel.visibility = if (show) View.VISIBLE else View.GONE
+        theme?.let { scaleButton.setTextColor(if (show) it.accent else it.muted) }
+            ?: scaleButton.setTextColor(if (show) SCALE_ON_COLOR else Color.WHITE)
+    }
+
+    /** Draws the app [value] times its usual size by giving it a narrower or wider display. */
+    private fun setZoom(value: Float) {
+        if (value == zoom) return
+        displayWidth = ((displayWidth * zoom / value).roundToInt() and 1.inv()).coerceAtLeast(MIN_DISPLAY_WIDTH)
+        zoom = value
+        prefs.setAppZoom(app.key, value)
+        showZoom(value)
+        resizeDisplay()
     }
 
     /**
@@ -257,7 +354,7 @@ class AppWindow(
             (1f / rotationShrink).also { rotationShrink = 1f }
         }
         restore = restore?.let {
-            Restore(it.x * widthScale, it.y * heightScale, (it.width * scale).roundToInt(), (it.height * scale).roundToInt(), it.displayWidth)
+            Restore(it.x * widthScale, it.y * heightScale, (it.width * scale).roundToInt(), (it.height * scale).roundToInt(), it.displayWidth, it.zoom)
         }
         if (!isFilled) {
             windowWidth = (windowWidth * scale).roundToInt()
@@ -307,7 +404,7 @@ class AppWindow(
     private fun toggleFilled() {
         val saved = restore
         if (saved == null) {
-            restore = Restore(x - leftInset, y, windowWidth, contentHeight, displayWidth)
+            restore = Restore(x - leftInset, y, windowWidth, contentHeight, displayWidth, zoom)
             x = leftInset
             fillArea()
         } else {
@@ -316,7 +413,8 @@ class AppWindow(
             y = saved.y
             windowWidth = saved.width
             contentHeight = saved.height
-            displayWidth = saved.displayWidth
+            // The scale may have changed while filled.
+            displayWidth = ((saved.displayWidth * saved.zoom / zoom).roundToInt() and 1.inv()).coerceAtLeast(MIN_DISPLAY_WIDTH)
             applySize()
             resizeDisplay()
             // Back among the other windows, which may have moved into its old place meanwhile.
@@ -331,7 +429,7 @@ class AppWindow(
         windowWidth = usableWidth()
         contentHeight = availableContentHeight()
         y = topLimit
-        displayWidth = (windowWidth * 2 / 3) and 1.inv()
+        displayWidth = zoomed(windowWidth * 2 / 3)
         applySize()
         resizeDisplay()
     }
@@ -377,11 +475,23 @@ class AppWindow(
         titleBarView = bar
         gripView = resizeHandle()
         closeView = closeButton()
+        scaleButton = TextView(context).apply {
+            text = "Aa"
+            gravity = Gravity.CENTER
+            textSize = 12f
+            setTextColor(Color.WHITE)
+            contentDescription = context.getString(R.string.window_scale)
+            setOnClickListener {
+                onFocus(this@AppWindow)
+                toggleScalePanel()
+            }
+        }
         labelView.visibility = View.GONE
         labelView.gravity = Gravity.CENTER_VERTICAL
         bar.addView(gripView, LinearLayout.LayoutParams(buttonWidth, LayoutParams.MATCH_PARENT))
         bar.addView(View(context), LinearLayout.LayoutParams(0, 0, 1f))
         bar.addView(labelView, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        bar.addView(scaleButton, LinearLayout.LayoutParams(buttonWidth, LayoutParams.MATCH_PARENT))
         bar.addView(closeView, LinearLayout.LayoutParams(buttonWidth, LayoutParams.MATCH_PARENT))
         attachDrag(bar)
         return bar
@@ -420,6 +530,16 @@ class AppWindow(
             labelView.textSize = 14f
             labelView.setTextColor(newTheme.muted)
             closeView.setTextColor(newTheme.muted)
+            val panelOpen = scalePanel.visibility == View.VISIBLE
+            scaleButton.setTextColor(if (panelOpen) newTheme.accent else newTheme.muted)
+            scaleButton.typeface = newTheme.typeface
+            scalePanel.setBackgroundColor(newTheme.surface.withAlpha(ACTIVE_ALPHA))
+            scaleLabel.setTextColor(newTheme.text)
+            scaleLabel.typeface = newTheme.typeface
+            scaleReset.setTextColor(newTheme.muted)
+            val tint = android.content.res.ColorStateList.valueOf(newTheme.accent)
+            scaleBar.progressTintList = tint
+            scaleBar.thumbTintList = tint
         } else {
             foreground = null
             background = GradientDrawable().apply {
@@ -435,6 +555,14 @@ class AppWindow(
             gripView.typeface = android.graphics.Typeface.DEFAULT
             labelView.visibility = View.GONE
             closeView.setTextColor(Color.WHITE)
+            scaleButton.setTextColor(if (scalePanel.visibility == View.VISIBLE) SCALE_ON_COLOR else Color.WHITE)
+            scaleButton.typeface = android.graphics.Typeface.DEFAULT
+            scalePanel.setBackgroundColor(TITLE_COLOR)
+            scaleLabel.setTextColor(Color.WHITE)
+            scaleLabel.typeface = android.graphics.Typeface.DEFAULT
+            scaleReset.setTextColor(Color.WHITE)
+            scaleBar.progressTintList = null
+            scaleBar.thumbTintList = null
         }
         if (newTitleHeight != titleHeight) {
             titleHeight = newTitleHeight
@@ -696,5 +824,11 @@ class AppWindow(
         const val MIN_DISPLAY_HEIGHT_RATIO_PERCENT = 60
         const val TITLE_COLOR = 0xEE1B1B20.toInt()
         const val STROKE_COLOR = 0x55FFFFFF
+        const val SCALE_ON_COLOR = 0xFF7DCFFF.toInt()
+        const val MIN_ZOOM = 0.5f
+        const val MAX_ZOOM = 2f
+        const val ZOOM_STEP = 0.05f
+        /** The narrowest display an app gets, however big it is drawn. */
+        const val MIN_DISPLAY_WIDTH = 240
     }
 }

@@ -166,4 +166,6 @@
     <string name="role_muted">Soluk yazı</string>
     <string name="role_line">Takvim çizgisi</string>
     <string name="ok">Tamam</string>
+    <string name="window_scale">Uygulama ölçeği</string>
+    <string name="window_scale_reset">Ölçeği sıfırla</string>
 </resources>

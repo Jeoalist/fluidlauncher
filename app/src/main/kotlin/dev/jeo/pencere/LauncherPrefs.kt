@@ -90,6 +90,13 @@ class LauncherPrefs(context: Context) {
         prefs.edit().putStringSet(KEY_FULLSCREEN_APPS, apps).apply()
     }
 
+    /** How much bigger or smaller an app is drawn in its window than usual, 1 being usual. */
+    fun appZoom(key: String): Float = prefs.getFloat(KEY_ZOOM_PREFIX + key, 1f)
+
+    fun setAppZoom(key: String, zoom: Float) {
+        prefs.edit().apply { if (zoom == 1f) remove(KEY_ZOOM_PREFIX + key) else putFloat(KEY_ZOOM_PREFIX + key, zoom) }.apply()
+    }
+
     /** Whether windows are tiled on each desktop instead of pushing each other. */
     var tiling: Boolean
         get() = prefs.getBoolean(KEY_TILING, false)
@@ -166,6 +173,7 @@ class LauncherPrefs(context: Context) {
         const val KEY_FONT = "font"
         const val KEY_TILING = "tiling"
         const val KEY_FULLSCREEN_APPS = "fullscreen_apps"
+        const val KEY_ZOOM_PREFIX = "zoom:"
         const val KEY_ADB_PAIRED = "adb_paired"
         const val KEY_ICON_SHADE = "icon_shade"
         const val KEY_THEME_VERSION = "theme_version"

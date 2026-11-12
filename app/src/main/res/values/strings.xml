@@ -166,4 +166,6 @@
     <string name="role_muted">Faded text</string>
     <string name="role_line">Calendar line</string>
     <string name="ok">OK</string>
+    <string name="window_scale">App scale</string>
+    <string name="window_scale_reset">Reset scale</string>
 </resources>
