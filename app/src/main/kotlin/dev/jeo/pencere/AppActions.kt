@@ -29,8 +29,11 @@ fun Activity.launchApp(app: AppEntry, asWindow: Boolean, source: View, newWindow
     val bounds = Rect().also(source::getGlobalVisibleRect)
     val prefs = LauncherPrefs(this)
     try {
-        val scaled = asWindow && app.user == Process.myUserHandle() && AppWindows.current?.open(app, newWindow) == true
-        if (scaled && FloatingAppsButton.isShown) {
+        val scalable = asWindow && app.user == Process.myUserHandle()
+        // Over an app in real full screen the window floats above it instead of going home.
+        val floating = scalable && MainActivity.isCovered && FloatingWindows.open(this, app, newWindow)
+        val scaled = floating || scalable && AppWindows.current?.open(app, newWindow) == true
+        if (scaled && !floating && MainActivity.isCovered) {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         if (!scaled) WindowOpener(this).open(app, asWindow, prefs.windowSize, bounds)

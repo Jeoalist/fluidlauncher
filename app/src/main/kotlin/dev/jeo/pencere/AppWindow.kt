@@ -38,7 +38,40 @@ class AppWindow(
     private val onClose: (AppWindow) -> Unit,
     private val onFilledChanged: () -> Unit,
     private val onOpenFullscreen: (AppWindow) -> Unit,
+    /** Set when the window floats in its own system window instead of inside the launcher. */
+    private val host: Host? = null,
 ) : FrameLayout(context) {
+
+    /** Places a window that is not inside a parent view. */
+    interface Host {
+        val areaWidth: Int
+        val areaHeight: Int
+        fun place(window: AppWindow, x: Float, y: Float, width: Int, height: Int)
+    }
+
+    // In a host the position lives here, because there is no parent to translate within.
+    private var hostX = 0f
+    private var hostY = 0f
+
+    override fun getX(): Float = if (host != null) hostX else super.getX()
+
+    override fun setX(x: Float) {
+        if (host == null) return super.setX(x)
+        hostX = x
+        host.place(this, hostX, hostY, windowWidth, contentHeight + titleHeight)
+    }
+
+    override fun getY(): Float = if (host != null) hostY else super.getY()
+
+    override fun setY(y: Float) {
+        if (host == null) return super.setY(y)
+        hostY = y
+        host.place(this, hostX, hostY, windowWidth, contentHeight + titleHeight)
+    }
+
+    private fun areaWidth() = host?.areaWidth ?: (parent as View).width
+
+    private fun areaHeight() = host?.areaHeight ?: (parent as View).height
 
     /** Size of the virtual display the app believes is its screen. */
     data class DisplaySpec(val width: Int, val height: Int, val dpi: Int)
@@ -116,7 +149,7 @@ class AppWindow(
     /** Keeps the title bar below the status bar and reachable after the screen rotates. */
     fun keepInArea(top: Float) {
         topLimit = top
-        y = y.coerceIn(top, maxTop(parent as View))
+        y = y.coerceIn(top, maxTop())
         if (restore != null && !fillsArea()) post(::fillArea)
     }
 
@@ -127,11 +160,10 @@ class AppWindow(
      * shrinks it just enough to fit the shorter screen, turning back undoes that shrink.
      */
     fun scaleForRotation(widthScale: Float, heightScale: Float) {
-        val layer = parent as View
         x *= widthScale
         y *= heightScale
         val scale = if (heightScale < 1f) {
-            val room = layer.height - topLimit - titleHeight * 2f
+            val room = areaHeight() - topLimit - titleHeight * 2f
             minOf(1f, room / contentHeight).also { rotationShrink = it }
         } else {
             (1f / rotationShrink).also { rotationShrink = 1f }
@@ -144,7 +176,7 @@ class AppWindow(
             contentHeight = (contentHeight * scale).roundToInt()
             applySize()
             resizeDisplay()
-            y = y.coerceAtMost(layer.height - contentHeight - titleHeight.toFloat())
+            y = y.coerceAtMost(areaHeight() - contentHeight - titleHeight.toFloat())
         }
         keepInArea(topLimit)
     }
@@ -155,25 +187,24 @@ class AppWindow(
      */
     private fun toggleLandscape() {
         if (isFilled || displayId == NO_DISPLAY) return
-        val layer = parent as View
         val appScale = windowWidth / displayWidth.toFloat()
         val turnedDisplayWidth = (displayHeight - topCrop) and 1.inv()
         val width = turnedDisplayWidth * appScale
         val height = displayWidth * appScale
-        val fit = minOf(1f, layer.width / width, (layer.height - topLimit - titleHeight) / height)
+        val fit = minOf(1f, areaWidth() / width, (areaHeight() - topLimit - titleHeight) / height)
         displayWidth = turnedDisplayWidth
         windowWidth = (width * fit).roundToInt()
         contentHeight = (height * fit).roundToInt()
-        x = x.coerceAtMost(layer.width - windowWidth.toFloat())
-        y = y.coerceAtMost(layer.height - contentHeight - titleHeight.toFloat())
+        x = x.coerceAtMost(areaWidth() - windowWidth.toFloat())
+        y = y.coerceAtMost(areaHeight() - contentHeight - titleHeight.toFloat())
         applySize()
         resizeDisplay()
         keepInArea(topLimit)
     }
 
-    private fun availableContentHeight() = (parent as View).height - topLimit.toInt() - titleHeight
+    private fun availableContentHeight() = areaHeight() - topLimit.toInt() - titleHeight
 
-    private fun fillsArea() = windowWidth == (parent as View).width && contentHeight == availableContentHeight()
+    private fun fillsArea() = windowWidth == areaWidth() && contentHeight == availableContentHeight()
 
     private fun toggleFilled() {
         val saved = restore
@@ -196,7 +227,7 @@ class AppWindow(
 
     /** Runs the app at the panel's own proportions instead of the scaled phone layout. */
     private fun fillArea() {
-        windowWidth = (parent as View).width
+        windowWidth = areaWidth()
         contentHeight = availableContentHeight()
         y = topLimit
         displayWidth = (windowWidth * 2 / 3) and 1.inv()
@@ -204,7 +235,7 @@ class AppWindow(
         resizeDisplay()
     }
 
-    private fun maxTop(layer: View) = (layer.height - titleHeight * 2f).coerceAtLeast(topLimit)
+    private fun maxTop() = (areaHeight() - titleHeight * 2f).coerceAtLeast(topLimit)
 
     fun close() {
         call { if (displayId != NO_DISPLAY) service.releaseDisplay(displayId) }
@@ -217,13 +248,18 @@ class AppWindow(
         val created = Surface(surfaceTexture)
         surface = created
         call {
-            displayId = service.createDisplay("pencere-${app.packageName}", displayWidth, displayHeight, spec.dpi, created)
+            val rate = context.chosenRefreshRate().toFloat()
+            displayId = service.createDisplay("pencere-${app.packageName}", displayWidth, displayHeight, spec.dpi, created, rate)
             service.launch(displayId, app.component.flattenToString(), separateTask)
         }
     }
 
     private fun applySize() {
-        layoutParams = LayoutParams(windowWidth, contentHeight + titleHeight)
+        if (host != null) {
+            host.place(this, hostX, hostY, windowWidth, contentHeight + titleHeight)
+        } else {
+            layoutParams = LayoutParams(windowWidth, contentHeight + titleHeight)
+        }
     }
 
     private fun titleBar(): View {
@@ -315,10 +351,9 @@ class AppWindow(
 
     /** Keeps the title bar reachable so that a window can always be dragged back. */
     private fun moveTo(newX: Float, newY: Float) {
-        val parentView = parent as View
         val keep = titleHeight * 2f
-        x = newX.coerceIn(keep - width, parentView.width - keep)
-        y = newY.coerceIn(topLimit, maxTop(parentView))
+        x = newX.coerceIn(keep - width, areaWidth() - keep)
+        y = newY.coerceIn(topLimit, maxTop())
     }
 
     /**
@@ -370,8 +405,7 @@ class AppWindow(
         startWidth: Int,
         startHeight: Int,
     ) {
-        val layer = parent as View
-        val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, layer.width)
+        val maxWidth = (startX + startWidth).toInt().coerceIn(minWidth, areaWidth())
         windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
         val minHeight = minOf(windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100, minWidth)
         val maxHeight = minOf(windowWidth * maxDisplayHeight / displayWidth, (startY + startHeight - topLimit).toInt())

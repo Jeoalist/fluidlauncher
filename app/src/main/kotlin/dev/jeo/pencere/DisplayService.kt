@@ -1,5 +1,7 @@
 package dev.jeo.pencere
 
+import android.hardware.display.VirtualDisplayConfig
+import android.os.Build
 import android.app.ActivityManager
 import android.content.Context
 import android.hardware.display.DisplayManager
@@ -31,8 +33,19 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
         displays.clear()
     }
 
-    override fun createDisplay(name: String, width: Int, height: Int, dpi: Int, surface: Surface): Int {
-        val display = displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
+    override fun createDisplay(name: String, width: Int, height: Int, dpi: Int, surface: Surface, refreshRate: Float): Int {
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // Without a requested rate a virtual display runs at 60 Hz even on a 120 Hz panel.
+            val config = VirtualDisplayConfig.Builder(name, width, height, dpi)
+                .setSurface(surface)
+                .setFlags(DISPLAY_FLAGS)
+                .setRequestedRefreshRate(refreshRate)
+                .build()
+            displayManager.createVirtualDisplay(config, null, null)
+                ?: throw IllegalStateException("Virtual display was refused")
+        } else {
+            displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
+        }
         val id = display.display.displayId
         displays[id] = display
         return id

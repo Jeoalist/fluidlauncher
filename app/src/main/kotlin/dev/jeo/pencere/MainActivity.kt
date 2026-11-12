@@ -155,18 +155,24 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        preferChosenMode()
+        if (!prefs.tutorialDone && tutorial == null) showTutorial()
         applySystemBars(windows.isFullscreenVisible)
     }
 
     override fun onStart() {
         super.onStart()
+        isCovered = false
         FloatingAppsButton.hide(this)
     }
 
     /** Something covers the launcher, such as an app in real full screen. */
     override fun onStop() {
         super.onStop()
-        if (!isChangingConfigurations) FloatingAppsButton.show(this)
+        if (!isChangingConfigurations) {
+            isCovered = true
+            FloatingAppsButton.show(this)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -241,7 +247,22 @@ class MainActivity : Activity() {
      * Lets touches reach the desktop and windows as usual, and only takes over once a drag that
      * started in the pan zone turns out to be horizontal, so the zone can be large.
      */
+    /** The first-run guide, drawn over everything else while it runs. */
+    private var tutorial: TutorialOverlay? = null
+
+    private fun showTutorial() {
+        val overlay = TutorialOverlay(this, prefs, appsButton) {
+            tutorial?.let((root as FrameLayout)::removeView)
+            tutorial = null
+        }
+        tutorial = overlay
+        (root as FrameLayout).addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        overlay.requestApplyInsets()
+    }
+
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // The guide takes every touch itself, without the desktop's swipes and holds.
+        if (tutorial != null) return super.dispatchTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 appContentTouched = windows.isOnContent(event.rawX, event.rawY)
@@ -325,7 +346,10 @@ class MainActivity : Activity() {
     private fun renderShizukuState() {
         val state = ShizukuBridge.state
         updateFocusable()
-        if (state != ShizukuBridge.State.READY) windows.closeAll()
+        if (state != ShizukuBridge.State.READY) {
+            windows.closeAll()
+            FloatingWindows.closeAll()
+        }
         val message = when (state) {
             ShizukuBridge.State.NOT_RUNNING -> R.string.shizuku_not_running
             ShizukuBridge.State.NEEDS_PERMISSION -> R.string.shizuku_needs_permission
@@ -378,6 +402,9 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        /** True while another app covers the launcher. */
+        var isCovered = false
+            private set
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
         const val CLOSE_BACKGROUND_HOLD_MS = 1500L
         private const val SETTINGS_HOLD_MS = 1500L

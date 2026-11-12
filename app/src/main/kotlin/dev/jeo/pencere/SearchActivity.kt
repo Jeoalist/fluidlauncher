@@ -85,6 +85,7 @@ class SearchActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        preferChosenMode()
         applySystemBars(hideStatusBar = AppWindows.current?.isFullscreenVisible == true)
     }
 
@@ -121,7 +122,7 @@ class SearchActivity : Activity() {
     /** Asks the privileged service off the main thread, since it is a blocking binder call. */
     private fun loadOpenApps() {
         val service = ShizukuBridge.service
-        val windows = AppWindows.current?.openApps.orEmpty()
+        val windows = AppWindows.current?.openApps.orEmpty() + FloatingWindows.openApps
         val catalog = AppCatalog.apps
         background.execute {
             val running = try {
@@ -216,6 +217,7 @@ class SearchActivity : Activity() {
 
     private fun closeApp(app: AppEntry) {
         AppWindows.current?.closeApp(app.key)
+        FloatingWindows.closeApp(app.key)
         render(results - app, holdToClose = true)
         val service = ShizukuBridge.service ?: return
         background.execute {

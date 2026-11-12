@@ -16,7 +16,7 @@ fun closeBackgroundApps(context: Context, keepForeground: Boolean) {
         return
     }
     val home = app.packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
-    val windowed = AppWindows.current?.openApps.orEmpty().map { it.packageName }.toSet()
+    val windowed = (AppWindows.current?.openApps.orEmpty() + FloatingWindows.openApps).map { it.packageName }.toSet()
     val ours = setOfNotNull(app.packageName, home?.activityInfo?.packageName)
     val launchable = AppCatalog.apps.map { it.packageName }.toSet()
     Thread {

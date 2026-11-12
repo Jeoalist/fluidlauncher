@@ -51,6 +51,7 @@ class DrawerActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        preferChosenMode()
         applySystemBars(hideStatusBar = AppWindows.current?.isFullscreenVisible == true)
     }
 

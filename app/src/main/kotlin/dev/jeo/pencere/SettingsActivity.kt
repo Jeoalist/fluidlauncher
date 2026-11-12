@@ -21,6 +21,7 @@ class SettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        preferChosenMode()
         // The launcher is behind this screen, but its floating button would only be in the way here.
         FloatingAppsButton.hide(this)
         render()
@@ -58,6 +59,16 @@ class SettingsActivity : Activity() {
                 prefs.windowSize = WindowSize.entries[it]
             }
         }
+        val rates = supportedRefreshRates()
+        if (rates.size > 1) {
+            val current = chosenRefreshRate()
+            addRow(getString(R.string.setting_refresh_rate), getString(R.string.refresh_rate_hz, current)) {
+                choose(R.string.setting_refresh_rate, rates.map { getString(R.string.refresh_rate_hz, it) }, rates.indexOf(current)) {
+                    prefs.refreshRate = rates[it]
+                    preferChosenMode()
+                }
+            }
+        }
         val opensDrawer = prefs.appsButtonOpensDrawer
         val tapChoices = listOf(R.string.apps_button_search, R.string.apps_button_drawer)
         addRow(getString(R.string.setting_button_tap), getString(tapChoices[if (opensDrawer) 1 else 0])) {
@@ -84,6 +95,10 @@ class SettingsActivity : Activity() {
             choose(R.string.setting_button_hold, buttonChoices.map(::getString), if (closeOnHold) 0 else 1) {
                 prefs.closeBackgroundOnHold = it == 0
             }
+        }
+        addRow(getString(R.string.setting_tutorial), null) {
+            prefs.tutorialDone = false
+            finish()
         }
         addRow(getString(R.string.wallpaper), null) {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), getString(R.string.wallpaper)))

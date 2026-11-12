@@ -9,6 +9,16 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_WINDOWED, true)
         set(value) = prefs.edit().putBoolean(KEY_WINDOWED, value).apply()
 
+    /** Screen refresh rate in Hz; 0 means the fastest the screen offers. */
+    var refreshRate: Int
+        get() = prefs.getInt(KEY_REFRESH_RATE, 0)
+        set(value) = prefs.edit().putInt(KEY_REFRESH_RATE, value).apply()
+
+    /** Whether the first-run guide was finished or skipped. */
+    var tutorialDone: Boolean
+        get() = prefs.getBoolean(KEY_TUTORIAL_DONE, false)
+        set(value) = prefs.edit().putBoolean(KEY_TUTORIAL_DONE, value).apply()
+
     var windowSize: WindowSize
         get() = WindowSize.valueOf(prefs.getString(KEY_SIZE, WindowSize.MEDIUM.name)!!)
         set(value) = prefs.edit().putString(KEY_SIZE, value.name).apply()
@@ -70,6 +80,8 @@ class LauncherPrefs(context: Context) {
         const val KEY_CLOSE_BACKGROUND_ON_HOLD = "close_background_on_hold"
         const val KEY_APPS_BUTTON_DRAWER = "apps_button_drawer"
         const val KEY_FLOATING_BUTTON = "floating_button"
+        const val KEY_REFRESH_RATE = "refresh_rate"
+        const val KEY_TUTORIAL_DONE = "tutorial_done"
         const val KEY_FLOATING_X = "floating_x"
         const val KEY_FLOATING_Y = "floating_y"
         const val SEPARATOR = "|"
