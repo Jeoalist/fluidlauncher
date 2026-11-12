@@ -10,6 +10,9 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 - Sürükleme, serbest boyutlandırma ve çift dokunarak tam ekran
 - Sol alttan çekerek geçilen sanal masaüstleri; arka plandaki uygulamalar kapanmaz
 - Ekranda taşınabilen düğme ve Türkçe karakter gerektirmeyen uygulama araması
+- Gerçek tam ekrandaki uygulamaların üstünde de duran uygulama düğmesi ve pencereler
+- Ayarlanabilir pencere hareketleri, ekran yenileme hızı (120/90/60 Hz) ve dil (Türkçe / English)
+- İlk açılışta etkileşimli kullanım rehberi
 - Shizuku kapalıyken sistemin kendi pencere moduna geri dönüş
 
 ## Gereksinimler
@@ -17,6 +20,16 @@ Uygulamaları ekranda serbestçe taşınabilen ve boyutlandırılabilen pencerel
 - Android 13 veya üstü
 - ADB veya [Shizuku](https://github.com/RikkaApps/Shizuku) (root gerekmez)
 - Derlemek için JDK 17 ve Android SDK 36
+
+## İndirme
+
+Hazır APK'yı [Releases](https://github.com/Jeoalist/fluidlauncher/releases) sayfasından indirip kurabilirsiniz:
+
+```sh
+adb install FluidLauncher-1.0.0.apk
+```
+
+Kendi derlediğiniz bir sürüm telefonda kuruluysa önce onu kaldırın; imzalar farklı olduğu için üzerine kurulamaz.
 
 ## Derleme
 

@@ -2,9 +2,11 @@ package dev.jeo.pencere
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.LocaleManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.LocaleList
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
@@ -53,6 +55,13 @@ class SettingsActivity : Activity() {
             }
         }
         addHeader(R.string.settings_general)
+        val windowed = prefs.windowed
+        val openChoices = listOf(R.string.mode_window, R.string.mode_fullscreen)
+        addRow(getString(R.string.setting_open_apps), getString(openChoices[if (windowed) 0 else 1])) {
+            choose(R.string.setting_open_apps, openChoices.map(::getString), if (windowed) 0 else 1) {
+                prefs.windowed = it == 0
+            }
+        }
         val size = prefs.windowSize
         addRow(getString(R.string.setting_window_size), getString(size.labelRes)) {
             choose(R.string.setting_window_size, WindowSize.entries.map { getString(it.labelRes) }, size.ordinal) {
@@ -96,6 +105,7 @@ class SettingsActivity : Activity() {
                 prefs.closeBackgroundOnHold = it == 0
             }
         }
+        addLanguageRow()
         addRow(getString(R.string.setting_tutorial), null) {
             prefs.tutorialDone = false
             finish()
@@ -104,6 +114,21 @@ class SettingsActivity : Activity() {
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), getString(R.string.wallpaper)))
         }
         addRow(getString(R.string.settings), null) { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+    }
+
+    /** Language names are shown in their own language, so each is readable to its speakers. */
+    private fun addLanguageRow() {
+        val localeManager = getSystemService(LocaleManager::class.java)
+        val tags = listOf("", "en", "tr")
+        val names = listOf(getString(R.string.language_system), "English", "Türkçe")
+        val current = localeManager.applicationLocales.takeIf { !it.isEmpty }?.get(0)?.language.orEmpty()
+        val selected = tags.indexOf(current).coerceAtLeast(0)
+        addRow(getString(R.string.setting_language), names[selected]) {
+            choose(R.string.setting_language, names, selected) {
+                // The system recreates the screens in the new language.
+                localeManager.applicationLocales = LocaleList.forLanguageTags(tags[it])
+            }
+        }
     }
 
     private fun choose(titleRes: Int, options: List<String>, selected: Int, onChosen: (Int) -> Unit) {

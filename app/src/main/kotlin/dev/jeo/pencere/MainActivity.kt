@@ -3,6 +3,7 @@ package dev.jeo.pencere
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.LauncherApps
 import android.graphics.Insets
 import android.graphics.Rect
@@ -35,7 +36,6 @@ class MainActivity : Activity() {
 
     private lateinit var root: View
     private lateinit var desktop: View
-    private lateinit var modePill: TextView
     private lateinit var appsButton: View
     private lateinit var shizukuPill: TextView
     private lateinit var windowLayer: FrameLayout
@@ -71,7 +71,6 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.root)
         desktop = findViewById(R.id.desktop)
-        modePill = findViewById(R.id.modePill)
         appsButton = findViewById(R.id.appsButton)
         shizukuPill = findViewById(R.id.shizukuPill)
         windowLayer = findViewById(R.id.windowLayer)
@@ -101,10 +100,6 @@ class MainActivity : Activity() {
             excludeBackGesture()
             keepWindowsInArea()
         }
-        modePill.setOnClickListener {
-            prefs.windowed = !prefs.windowed
-            renderMode()
-        }
         setUpDesktopHold()
         setUpAppsButton()
         touchSlop = ViewConfiguration.get(this).scaledTouchSlop
@@ -112,7 +107,6 @@ class MainActivity : Activity() {
         windows.onDesktopChanged = ::renderDesktopLabel
         windows.onFullscreenChanged = ::applyFullscreen
         renderDesktopLabel(1)
-        renderMode()
         shizukuPill.setOnClickListener { onShizukuPillClicked() }
         ShizukuBridge.onStateChanged = shizukuStateListener
         ShizukuBridge.start(this)
@@ -315,8 +309,18 @@ class MainActivity : Activity() {
         root.systemGestureExclusionRects = listOf(Rect(0, bottom - panZoneHeight, panZoneHeight / 2, bottom))
     }
 
+    private var desktopNumber = 1
+
     private fun renderDesktopLabel(number: Int) {
+        desktopNumber = number
         desktopLabel.text = getString(R.string.desktop_label, number)
+    }
+
+    /** Keeps the windows alive through a language change by redrawing texts instead of restarting. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        renderDesktopLabel(desktopNumber)
+        renderShizukuState()
     }
 
     /** Closes launchable apps that have no window here, leaving this launcher and the home app. */
@@ -369,9 +373,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderMode() {
-        modePill.setText(if (prefs.windowed) R.string.mode_window else R.string.mode_fullscreen)
-    }
 
     /** Holding an empty spot on the desktop offers to open the launcher settings. */
     private fun setUpDesktopHold() {
