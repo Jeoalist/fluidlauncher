@@ -113,15 +113,17 @@ class TrayDesktop(
             chrome.visibility = visibility
         }
 
-    /** The top of the desktop picker on screen, which windows stay above. */
-    val pickerTop: Float get() = desktopTray.y
+    /** The top of the desktop picker on screen as drawn, which windows stay above. */
+    val pickerTop: Float get() = desktopTray.y + desktopTray.height * (1 - desktopTray.scaleY)
+
+    /** The picker's left and right edges on screen as drawn; windows beside it may reach lower. */
+    val pickerLeft: Float get() = desktopTray.x + desktopTray.width * (1 - desktopTray.scaleX) / 2
+    val pickerRight: Float get() = desktopTray.x + desktopTray.width * (1 + desktopTray.scaleX) / 2
 
     /** Whether a screen point is on the desktop picker, which takes its own sideways drags. */
     fun isOnPicker(x: Float, y: Float): Boolean {
         if (!visible) return false
-        val location = IntArray(2).also(desktopTray::getLocationOnScreen)
-        return x >= location[0] && x <= location[0] + desktopTray.width &&
-            y >= location[1] && y <= location[1] + desktopTray.height
+        return x >= pickerLeft && x <= pickerRight && y >= pickerTop && y <= desktopTray.y + desktopTray.height
     }
 
     fun setInsets(bars: Insets) {
@@ -244,6 +246,13 @@ class TrayDesktop(
         val trayTop = height - insets.bottom - dp(12) - dp(TRAY_HEIGHT_DP)
         desktopTray.x = (width - trayWidth) / 2f
         desktopTray.y = trayTop.toFloat()
+        // A wide, short screen gets a smaller picker, standing on the same bottom line, so more of
+        // the bottom is left to windows.
+        val pickerScale = if (width > height) LANDSCAPE_PICKER_SCALE else 1f
+        desktopTray.pivotX = trayWidth / 2f
+        desktopTray.pivotY = dp(TRAY_HEIGHT_DP).toFloat()
+        desktopTray.scaleX = pickerScale
+        desktopTray.scaleY = pickerScale
         clockBlock.x = (insets.left + dp(24)).toFloat()
         clockBlock.y = (insets.top + dp(28)).toFloat()
         // Tall screens put the app list under the clock; a wide, short one puts it beside the
@@ -328,7 +337,8 @@ class TrayDesktop(
                 override fun afterTextChanged(text: Editable?) {
                     query = text?.toString().orEmpty()
                     reload()
-                    grid.setSelection(0)
+                    // An empty result has no first row; selecting it crashed the launcher.
+                    if (apps.isNotEmpty()) grid.setSelection(0)
                 }
             })
             // Enter opens the best match, like the search popup.
@@ -866,6 +876,7 @@ class TrayDesktop(
         val KANJI_NUMBERS = listOf("一", "二", "三", "四", "五")
         const val STAR = '☆'
         const val TRAY_HEIGHT_DP = 52
+        const val LANDSCAPE_PICKER_SCALE = 0.8f
         const val DESKTOP_BUTTON_DP = 50
 
         /** Extra touch area around the index letters, on every side. */

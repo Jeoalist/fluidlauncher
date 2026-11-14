@@ -90,10 +90,15 @@ fun Activity.appMenuContent(app: AppEntry, showTitle: Boolean, onDone: () -> Uni
         )
         switchPadding = dp(16)
         minHeight = dp(48)
-        setOnCheckedChangeListener { _, checked -> prefs.setOpensFullscreen(app.key, checked) }
+        setOnCheckedChangeListener { view, checked ->
+            prefs.setOpensFullscreen(app.key, checked)
+            // The line under the switch says what the current choice does.
+            val parent = view.parent as? LinearLayout ?: return@setOnCheckedChangeListener
+            (parent.getChildAt(parent.indexOfChild(view) + 1) as? TextView)?.setText(fullscreenHint(checked))
+        }
     }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
     content.addView(TextView(this).apply {
-        text = getString(R.string.menu_open_fullscreen_hint)
+        setText(fullscreenHint(prefs.opensFullscreen(app.key)))
         textSize = 12f
         typeface = theme.typeface
         setTextColor(theme.muted)
@@ -132,3 +137,6 @@ fun Activity.showAppMenu(app: AppEntry, anchor: View, onLaunched: () -> Unit = {
     }
     popup.showAsDropDown(anchor)
 }
+
+private fun fullscreenHint(fullscreen: Boolean) =
+    if (fullscreen) R.string.menu_open_fullscreen_hint_on else R.string.menu_open_fullscreen_hint

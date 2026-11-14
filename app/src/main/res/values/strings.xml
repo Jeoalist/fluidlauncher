@@ -141,6 +141,7 @@
     <string name="licenses_intro">FluidLauncher is open source under the MIT license and includes the libraries below. Tap one to read its full license.</string>
     <string name="menu_open_fullscreen">Open in full screen</string>
     <string name="menu_open_fullscreen_hint">Off: opens in a window</string>
+    <string name="menu_open_fullscreen_hint_on">On: opens in full screen</string>
     <string name="app_info">App info</string>
     <string name="tiling_on">Tiling: windows are arranged in a grid</string>
     <string name="tiling_off">Free windows: moving one pushes the others</string>

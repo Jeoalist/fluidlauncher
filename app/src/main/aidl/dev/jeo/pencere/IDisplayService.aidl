@@ -13,4 +13,5 @@ interface IDisplayService {
     void resizeDisplay(int displayId, int width, int height, int dpi) = 6;
     List<String> openPackages() = 7;
     void closePackage(String packageName) = 8;
+    void refreshSurface(int displayId, in Surface surface) = 9;
 }

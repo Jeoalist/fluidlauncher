@@ -181,7 +181,11 @@ class SearchActivity : Activity() {
         glyph.setOnClickListener {
             // Home is the tray desktop, so from the classic layout this switches back to it.
             if (prefs.desktopLayout != DesktopLayout.TRAY) prefs.desktopLayout = DesktopLayout.TRAY
-            startActivity(Intent(this@SearchActivity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(
+                Intent(this@SearchActivity, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra(MainActivity.EXTRA_GO_HOME, true),
+            )
             finish()
         }
     }
@@ -251,6 +255,6 @@ class SearchActivity : Activity() {
     private companion object {
         const val SLOTS_ACROSS = 4
         const val PANEL_WIDTH_DP = 280
-        const val CLOSE_HOLD_MS = 2000L
+        const val CLOSE_HOLD_MS = 1000L
     }
 }

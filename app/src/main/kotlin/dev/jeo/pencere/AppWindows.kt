@@ -71,12 +71,36 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     /** Where windows may reach at the bottom, such as above the tray's desktop picker; 0 is the screen's. */
     var bottomLimit = 0f
-        set(value) {
-            if (field == value) return
-            field = value
-            windows.forEach { it.keepInArea(topLimit, value, leftInset, rightInset) }
-            if (tiling) retileAll()
-        }
+        private set
+
+    /**
+     * How low windows beside the desktop picker may go, 0 when they stop above it like the rest;
+     * the picker spans [pickerLeft]..[pickerRight] on screen.
+     */
+    private var sideBottom = 0f
+    private var pickerLeft = 0f
+    private var pickerRight = 0f
+
+    fun setBottom(bottom: Float, side: Float = 0f, left: Float = 0f, right: Float = 0f) {
+        if (bottom == bottomLimit && side == sideBottom && left == pickerLeft && right == pickerRight) return
+        bottomLimit = bottom
+        sideBottom = side
+        pickerLeft = left
+        pickerRight = right
+        windows.forEach { it.keepInArea(topLimit, bottom, leftInset, rightInset) }
+        if (tiling) retileAll() else windows.toList().forEach { if (!it.isFilled) resolve(it) }
+    }
+
+    /**
+     * The bottom for a window spanning [width] from screen x [x]: above the desktop picker, or
+     * further down when it is entirely beside the picker.
+     */
+    private fun bottomAt(x: Float, width: Int): Float {
+        if (sideBottom <= areaBottom || layer.width == 0) return areaBottom
+        val left = (x + offset).mod(layer.width.toFloat())
+        val clear = left + width <= pickerLeft || left >= pickerRight
+        return if (clear) sideBottom else areaBottom
+    }
 
     /** Room kept free on either side for a camera cutout or side bars. */
     private var leftInset = 0f
@@ -125,6 +149,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         }
 
         override val canResize get() = !tiling
+
+        override fun bottomFor(window: AppWindow) = bottomAt(window.x, window.frameWidth)
     }
 
     /**
@@ -166,7 +192,7 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val minX = pageLeft
         val maxX = (pageLeft - leftInset + layer.width - rightInset - window.frameWidth).coerceAtLeast(minX)
         val minY = topLimit
-        val maxY = (areaBottom - window.frameHeight).coerceAtLeast(topLimit)
+        fun maxYAt(x: Float) = (bottomAt(x, window.frameWidth) - window.frameHeight).coerceAtLeast(topLimit)
         // While dragging, only away from the other window: a window never jumps over the finger's
         // window. Otherwise, as after a rotation, any side that has room will do, nearest first.
         val leftOf = window.x + window.frameWidth / 2f <= blocker.x + blocker.frameWidth / 2f
@@ -179,11 +205,11 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val all = listOf(toLeft to 0f, toRight to 0f, 0f to toTop, 0f to toBottom)
         val moves = (if (awayOnly) away else all).sortedBy { (dx, dy) -> abs(dx) + abs(dy) }
         val fitting = moves.firstOrNull { (dx, dy) ->
-            window.x + dx in minX..maxX && window.y + dy in minY..maxY
+            window.x + dx in minX..maxX && window.y + dy in minY..maxYAt(window.x + dx)
         } ?: if (force) moves.first() else return false
         // Even a forced move never leaves the desktop or slides under the desktop picker.
         window.x = (window.x + fitting.first).coerceIn(minX, maxX)
-        window.y = (window.y + fitting.second).coerceIn(minY, maxY)
+        window.y = (window.y + fitting.second).coerceIn(minY, maxYAt(window.x))
         return true
     }
 
@@ -194,10 +220,10 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
         val others = arrangedOn(page).filter { it !== window }
         val step = 24 * layer.resources.displayMetrics.density
         var y = topLimit
-        while (y + window.frameHeight <= areaBottom) {
+        while (y + window.frameHeight <= maxOf(areaBottom, sideBottom)) {
             var x = pageLeft
             while (x + window.frameWidth <= pageRight) {
-                val free = others.none {
+                val free = y + window.frameHeight <= bottomAt(x, window.frameWidth) && others.none {
                     x < it.x + it.frameWidth && it.x < x + window.frameWidth && y < it.y + it.frameHeight && it.y < y + window.frameHeight
                 }
                 if (free) return x to y
@@ -232,7 +258,10 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
             val inRow = if (row == rows - 1) count - row * columns else columns
             val column = i - row * columns
             val tileWidth = (width - gap * (inRow - 1)) / inRow
-            window.setFrame(left + column * (tileWidth + gap), top + row * (rowHeight + gap), tileWidth.toInt(), rowHeight.toInt())
+            val tileX = left + column * (tileWidth + gap)
+            // The bottom row's tiles beside the desktop picker reach down past it.
+            val tileHeight = if (row == rows - 1) bottomAt(tileX, tileWidth.toInt()) - gap - (top + row * (rowHeight + gap)) else rowHeight
+            window.setFrame(tileX, top + row * (rowHeight + gap), tileWidth.toInt(), tileHeight.toInt())
         }
     }
 
@@ -322,9 +351,8 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
     }
 
     /** Puts a window back inside its own desktop, between the side insets. */
-    private fun keepOnPage(window: AppWindow) {
+    private fun keepOnPage(window: AppWindow, page: Int = pageOf(window)) {
         if (window.isFilled || layer.width == 0) return
-        val page = pageOf(window)
         val pageLeft = page * layer.width - offset + leftInset
         val maxX = (pageLeft - leftInset + layer.width - rightInset - window.frameWidth).coerceAtLeast(pageLeft)
         val newX = window.x.coerceIn(pageLeft, maxX)
@@ -386,17 +414,26 @@ class AppWindows(private val layer: FrameLayout, private val prefs: LauncherPref
 
     private fun onRotated(scaleX: Float, scaleY: Float) {
         panAnimator?.cancel()
+        // Each window's desktop, judged at the old width: after scaling, a window that grew back
+        // could have its centre past the edge and be taken for one on the next desktop.
+        val oldWidth = layer.width / scaleX
+        val pages = windows.associateWith {
+            ((it.x + offset + it.frameWidth / 2f) / oldWidth).toInt().coerceIn(0, DESKTOP_COUNT - 1)
+        }
         offset *= scaleX
         val last = lastPageOffset()
         onScrolled(if (last > 0f) offset / last else 0f)
         windows.forEach {
             it.scaleForRotation(scaleX, scaleY)
-            keepOnPage(it)
+            keepOnPage(it, pages.getValue(it))
         }
         if (tiling) retileAll() else windows.toList().forEach { if (!it.isFilled) resolve(it) }
     }
 
     val openApps: List<AppEntry> get() = windows.map { it.app }
+
+    /** Re-attaches every window's display surface; see [AppWindow.refreshSurface]. */
+    fun refreshSurfaces() = windows.forEach { it.refreshSurface() }
 
     fun closeApp(key: String) {
         windows.filter { it.app.key == key }.forEach(::close)

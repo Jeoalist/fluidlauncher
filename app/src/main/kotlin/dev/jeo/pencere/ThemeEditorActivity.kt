@@ -332,9 +332,6 @@ class ThemeEditorActivity : Activity() {
             canvas.drawRoundRect(w * 0.62f, 16 * d, w - 16 * d, 130 * d, 14 * d, 14 * d, paint)
             paint.shader = null
             paint.style = Paint.Style.FILL
-            paint.textSize = 12 * d
-            paint.color = c.muted
-            canvas.drawText("ws 1", w * 0.62f + 12 * d, 36 * d, paint)
             // The desktop picker with the first desktop chosen.
             val top = h - 44 * d
             paint.color = c.text.withAlpha(0.08f)

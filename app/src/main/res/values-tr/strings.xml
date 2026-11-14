@@ -140,7 +140,8 @@
     <string name="licenses_title">Açık kaynak lisansları</string>
     <string name="licenses_intro">FluidLauncher, MIT lisanslı açık kaynak bir uygulamadır ve aşağıdaki kütüphaneleri içerir. Lisans metninin tamamını okumak için birine dokun.</string>
     <string name="menu_open_fullscreen">Tam ekranda aç</string>
-    <string name="menu_open_fullscreen_hint">Kapalıyken pencerede açılır</string>
+    <string name="menu_open_fullscreen_hint">Kapalı: pencerede açılır</string>
+    <string name="menu_open_fullscreen_hint_on">Açık: tam ekranda açılır</string>
     <string name="app_info">Uygulama bilgisi</string>
     <string name="tiling_on">Döşeme: pencereler ızgaraya diziliyor</string>
     <string name="tiling_off">Serbest pencereler: biri diğerlerini itiyor</string>

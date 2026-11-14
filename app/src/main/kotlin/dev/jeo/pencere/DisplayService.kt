@@ -2,6 +2,9 @@ package dev.jeo.pencere
 
 import android.hardware.display.VirtualDisplayConfig
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.app.ActivityManager
 import android.content.Context
 import android.hardware.display.DisplayManager
@@ -20,6 +23,22 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
         .apply { isAccessible = true }
         .newInstance(shell)
     private val displays = ConcurrentHashMap<Int, VirtualDisplay>()
+    private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * A display is paused while nothing shows it, as when the launcher goes behind another app.
+     * Resumed, it can keep drawing at a stale buffer size, which shows its app unscaled in a corner
+     * of the window; attaching the surface afresh makes the system read the size anew.
+     */
+    private fun callbackFor(display: () -> VirtualDisplay?) = object : VirtualDisplay.Callback() {
+        override fun onResumed() {
+            val current = display() ?: return
+            val surface = current.surface ?: return
+            Log.d("FluidDisplay", "resumed ${current.display.name}, re-attaching surface")
+            current.surface = null
+            current.surface = surface
+        }
+    }
 
     private val inputManagerType = Class.forName("android.hardware.input.InputManagerGlobal")
     private val inputManager = inputManagerType.getMethod("getInstance").invoke(null)
@@ -34,6 +53,8 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
     }
 
     override fun createDisplay(name: String, width: Int, height: Int, dpi: Int, surface: Surface, refreshRate: Float): Int {
+        var created: VirtualDisplay? = null
+        val callback = callbackFor { created }
         val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // Without a requested rate a virtual display runs at 60 Hz even on a 120 Hz panel.
             val config = VirtualDisplayConfig.Builder(name, width, height, dpi)
@@ -41,11 +62,12 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
                 .setFlags(DISPLAY_FLAGS)
                 .setRequestedRefreshRate(refreshRate)
                 .build()
-            displayManager.createVirtualDisplay(config, null, null)
+            displayManager.createVirtualDisplay(config, main, callback)
                 ?: throw IllegalStateException("Virtual display was refused")
         } else {
-            displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS)
+            displayManager.createVirtualDisplay(name, width, height, dpi, surface, DISPLAY_FLAGS, callback, main)
         }
+        created = display
         val id = display.display.displayId
         displays[id] = display
         return id
@@ -57,6 +79,17 @@ class DisplayService(private val shell: Context) : IDisplayService.Stub() {
 
     override fun resizeDisplay(displayId: Int, width: Int, height: Int, dpi: Int) {
         displays[displayId]?.resize(width, height, dpi)
+    }
+
+    /**
+     * Detaches the display's surface and attaches it again, so the system reads the picture
+     * buffer's size anew. After the launcher returns from behind another app, a display can
+     * otherwise keep drawing at a stale buffer size and show up unscaled in a corner.
+     */
+    override fun refreshSurface(displayId: Int, surface: Surface) {
+        val display = displays[displayId] ?: return
+        display.surface = null
+        display.surface = surface
     }
 
     /** Most recently used first, across every display. */

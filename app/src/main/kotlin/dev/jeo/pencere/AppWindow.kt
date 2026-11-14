@@ -52,6 +52,9 @@ class AppWindow(
         fun dropped(window: AppWindow)
         fun resized(window: AppWindow)
         val canResize: Boolean
+
+        /** Where [window] may reach at the bottom where it is now. */
+        fun bottomFor(window: AppWindow): Float
     }
 
     var arranger: Arranger? = null
@@ -66,13 +69,15 @@ class AppWindow(
      */
     fun setFrame(newX: Float, newY: Float, width: Int, height: Int) {
         if (isFilled) return
-        val newWidth = width.coerceAtLeast(minWidth)
+        // An app locked to portrait gets a tile no wider than tall, centred in its tile.
+        val newWidth = portraitWidth(width.coerceAtLeast(minWidth), height - titleHeight)
+        val tileX = newX + (width - newWidth) / 2f
         // The app lays itself out for the tile at its usual size, as when filling the screen,
         // instead of a phone layout blown up to the tile's width.
         val newDisplayWidth = zoomed(newWidth * 2 / 3)
         val maxContent = newWidth * maxDisplayHeight / newDisplayWidth
         val newContent = (height - titleHeight).coerceIn(titleHeight, maxContent.coerceAtLeast(titleHeight))
-        if (x != newX) x = newX
+        if (x != tileX) x = tileX
         if (y != newY) y = newY
         // Unchanged tiles are left alone: every new size lays the launcher out again, and that
         // used to come straight back here, resizing the app's display many times a second.
@@ -116,10 +121,22 @@ class AppWindow(
     private fun areaHeight() = host?.areaHeight ?: (parent as View).height
 
     /** The bottom windows stay above, such as the tray's desktop picker; else the screen's. */
-    private fun areaBottom() = if (bottomLimit > 0f) bottomLimit else areaHeight().toFloat()
+    private fun areaBottom() = arranger?.bottomFor(this) ?: if (bottomLimit > 0f) bottomLimit else areaHeight().toFloat()
 
     /** The usable width, between a camera cutout or side bars on either side. */
     private fun usableWidth() = (areaWidth() - leftInset - rightInset).toInt()
+
+    /**
+     * Whether the app only runs in portrait. Android squeezes such an app into a narrow strip
+     * with bars beside it on a display wider than tall, so its window never gets wider than tall.
+     */
+    private val portraitOnly: Boolean = runCatching {
+        context.packageManager.getActivityInfo(app.component, 0).screenOrientation in PORTRAIT_ORIENTATIONS
+    }.getOrDefault(false)
+
+    /** [width] narrowed, for an app locked to portrait, to no more than [height]. */
+    private fun portraitWidth(width: Int, height: Int) =
+        if (portraitOnly && height > 0) width.coerceAtMost(height.coerceAtLeast(minWidth)) else width
 
     /** Size of the virtual display the app believes is its screen. */
     data class DisplaySpec(val width: Int, val height: Int, val dpi: Int)
@@ -199,6 +216,7 @@ class AppWindow(
 
         texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                displayHeight = computeDisplayHeight()
                 texture.setDefaultBufferSize(displayWidth, displayHeight)
                 startApp(texture)
                 applyCrop()
@@ -217,6 +235,25 @@ class AppWindow(
             forwardTouch(event)
             true
         }
+    }
+
+    /**
+     * Coming back into view, as when the launcher returns from behind another app, the picture
+     * display can keep drawing at a stale buffer size and show the app unscaled in a corner. The
+     * size is set again and the display's surface attached afresh, so the system reads it anew.
+     */
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (visibility == View.VISIBLE) refreshSurface()
+    }
+
+    /** See [onWindowVisibilityChanged]; also called when the launcher comes back to the front. */
+    fun refreshSurface() {
+        if (displayId == NO_DISPLAY) return
+        val current = surface ?: return
+        texture.surfaceTexture?.setDefaultBufferSize(displayWidth, displayHeight)
+        // An older display service without this call just ignores it.
+        call { service.refreshSurface(displayId, current) }
     }
 
     /** Touches here belong to the window's own drag and resize handling. */
@@ -332,9 +369,12 @@ class AppWindow(
         leftInset = left
         rightInset = right
         if (parent == null && host == null) return
+        if (restore != null) {
+            if (!fillsArea()) post(::fillArea)
+            return
+        }
         val newY = y.coerceIn(top, maxTop())
         if (newY != y) y = newY
-        if (restore != null && !fillsArea()) post(::fillArea)
     }
 
     val isFilled: Boolean get() = restore != null
@@ -346,7 +386,7 @@ class AppWindow(
     fun scaleForRotation(widthScale: Float, heightScale: Float) {
         x *= widthScale
         // A filled window stays against the top; scaling would push it down past the picker.
-        y = if (isFilled) topLimit else y * heightScale
+        y = if (isFilled) FILLED_TOP else y * heightScale
         val scale = if (heightScale < 1f) {
             val room = areaHeight() - topLimit - titleHeight * 2f
             minOf(1f, room / contentHeight).also { rotationShrink = it }
@@ -378,7 +418,8 @@ class AppWindow(
      * other orientation. The window shrinks evenly if the turned window would not fit.
      */
     private fun toggleLandscape() {
-        if (isFilled || displayId == NO_DISPLAY) return
+        // An app locked to portrait would only be squeezed into a strip on a turned display.
+        if (isFilled || displayId == NO_DISPLAY || portraitOnly) return
         val appScale = windowWidth / displayWidth.toFloat()
         val turnedDisplayWidth = (displayHeight - topCrop) and 1.inv()
         val width = turnedDisplayWidth * appScale
@@ -394,22 +435,33 @@ class AppWindow(
         applySize()
         resizeDisplay()
         keepInArea(topLimit)
+        // The turned window is a new shape: the others make room for it, as after a resize.
+        // Tiling would only put it back in its tile, so it is left alone there.
+        if (arranger?.canResize == true) arranger?.resized(this)
     }
 
-    private fun availableContentHeight() = (areaBottom() - topLimit).toInt() - titleHeight
+    private fun availableContentHeight() = (areaBottom() - FILLED_TOP).toInt() - titleHeight
 
-    /** A filled window covers exactly the room between the status bar and the desktop picker. */
-    private fun fillsArea() = windowWidth == usableWidth() && contentHeight == availableContentHeight() && y == topLimit
+    /**
+     * A filled window covers exactly the room from the top of the screen, where the status bar
+     * hides while it is in view, down to the desktop picker.
+     */
+    private fun fillsArea() = windowWidth == fillWidth() && contentHeight == availableContentHeight() && y == FILLED_TOP
+
+    /** The whole width, or for an app locked to portrait no wider than tall. */
+    private fun fillWidth() = portraitWidth(areaWidth(), availableContentHeight())
 
     private fun toggleFilled() {
         val saved = restore
         if (saved == null) {
-            restore = Restore(x - leftInset, y, windowWidth, contentHeight, displayWidth, zoom)
-            x = leftInset
+            restore = Restore(x, y, windowWidth, contentHeight, displayWidth, zoom)
+            x = 0f
             fillArea()
         } else {
             restore = null
-            x += saved.x
+            // Back from the filled window's left edge, which a portrait app's narrower window left
+            // in the middle.
+            x = x - (areaWidth() - windowWidth) / 2f + saved.x
             y = saved.y
             windowWidth = saved.width
             contentHeight = saved.height
@@ -424,11 +476,16 @@ class AppWindow(
         onFilledChanged()
     }
 
-    /** Runs the app at the panel's own proportions instead of the scaled phone layout. */
+    /**
+     * Runs the app at the panel's own proportions instead of the scaled phone layout. It covers the
+     * whole width: the bars beside it hide while it is in view, as they do at the top.
+     */
     private fun fillArea() {
-        windowWidth = usableWidth()
+        windowWidth = fillWidth()
+        // A narrower window for a portrait app sits in the middle.
+        x += (areaWidth() - windowWidth) / 2f - x.mod(areaWidth().toFloat().coerceAtLeast(1f))
         contentHeight = availableContentHeight()
-        y = topLimit
+        y = FILLED_TOP
         displayWidth = zoomed(windowWidth * 2 / 3)
         applySize()
         resizeDisplay()
@@ -721,9 +778,12 @@ class AppWindow(
     ) {
         val maxWidth = (startX + startWidth - leftInset).toInt().coerceIn(minWidth, areaWidth())
         windowWidth = (startWidth - (event.rawX - downX).toInt()).coerceIn(minWidth, maxWidth)
-        val minHeight = minOf(windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100, minWidth)
+        // An app locked to portrait is never made wider than tall: it keeps at least its width in height.
+        val minHeight = if (portraitOnly) windowWidth else minOf(windowWidth * MIN_DISPLAY_HEIGHT_RATIO_PERCENT / 100, minWidth)
         val maxHeight = minOf(windowWidth * maxDisplayHeight / displayWidth, (startY + startHeight - topLimit).toInt())
         contentHeight = (startHeight - (event.rawY - downY).toInt()).coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
+        // An app locked to portrait is never made wider than tall.
+        windowWidth = portraitWidth(windowWidth, contentHeight)
         x = startX + startWidth - windowWidth
         y = startY + startHeight - contentHeight
         applySize()
@@ -751,8 +811,11 @@ class AppWindow(
 
     /** Waits for the finger to lift, because every display resize makes the app lay out again. */
     private fun resizeDisplay() {
-        if (displayId == NO_DISPLAY) return
+        // Kept up to date before the display exists too: the window is placed and sized before
+        // its surface is ready, and the display is then created at this size. Otherwise it would
+        // get the height of the window's first size and the app would look stretched sideways.
         displayHeight = computeDisplayHeight()
+        if (displayId == NO_DISPLAY) return
         // Each resize makes the app lay itself out again, so only a real change is sent.
         if (displayWidth == sentWidth && displayHeight == sentHeight) return
         sentWidth = displayWidth
@@ -810,6 +873,12 @@ class AppWindow(
 
     private companion object {
         const val NO_DISPLAY = -1
+        val PORTRAIT_ORIENTATIONS = setOf(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT,
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT,
+        )
         const val FULLSCREEN_HOLD_MS = 1500L
         val TOP_CROP_DP = mapOf("com.instagram.android" to 56, "com.zhiliaoapp.musically" to 56)
         const val TITLE_HEIGHT_DP = 24
@@ -824,6 +893,8 @@ class AppWindow(
         const val MIN_DISPLAY_HEIGHT_RATIO_PERCENT = 60
         const val TITLE_COLOR = 0xEE1B1B20.toInt()
         const val STROKE_COLOR = 0x55FFFFFF
+        /** Filled windows reach the top of the screen; the status bar hides over them. */
+        const val FILLED_TOP = 0f
         const val SCALE_ON_COLOR = 0xFF7DCFFF.toInt()
         const val MIN_ZOOM = 0.5f
         const val MAX_ZOOM = 2f

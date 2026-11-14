@@ -85,9 +85,11 @@ class MainActivity : Activity() {
 
         margin = (16 * resources.displayMetrics.density).toInt()
         root.setOnApplyWindowInsetsListener { _, insets ->
-            systemBars = insets.getInsets(WindowInsets.Type.systemBars())
+            // The bars' room whether they show or not: they hide while a filled window is in view,
+            // and following that would move every window and resize its app on each desktop turn.
+            systemBars = insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars())
             // A camera cutout on a side in landscape is room nothing should be placed in either.
-            sideInsets = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+            sideInsets = Insets.max(systemBars, insets.getInsets(WindowInsets.Type.displayCutout()))
             desktop.setPadding(
                 systemBars.left + margin,
                 systemBars.top + margin,
@@ -179,6 +181,17 @@ class MainActivity : Activity() {
         askForCalendarOnce()
         if (!prefs.tutorialDone && tutorial == null) showTutorial()
         applySystemBars(windows.isFullscreenVisible)
+        // Back in front, a window's display can be left drawing at a stale buffer size, showing its
+        // app unscaled in a corner. The surfaces are attached afresh now and once more a little
+        // later, in case the system reconfigures the displays after this.
+        windows.refreshSurfaces()
+        root.postDelayed({ windows.refreshSurfaces() }, SURFACE_REFRESH_DELAY_MS)
+    }
+
+    /** The home icon in the open-apps row asks for the home screen: the first desktop. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_GO_HOME, false)) windows.goToDesktop(1)
     }
 
     override fun onStart() {
@@ -447,7 +460,20 @@ class MainActivity : Activity() {
 
     /** In the tray layout windows stay above the desktop picker along the bottom. */
     private fun updateWindowBottom() {
-        windows.bottomLimit = if (LauncherTheme.load(prefs).isTray) tray.pickerTop - margin / 2f else 0f
+        if (!LauncherTheme.load(prefs).isTray) {
+            windows.setBottom(0f)
+            return
+        }
+        // On a wide screen, windows clear of the picker on either side may go down to the bottom.
+        val wide = root.width > root.height
+        windows.setBottom(
+            tray.pickerTop - margin / 2f,
+            if (wide) (root.height - systemBars.bottom - margin / 2f) else 0f,
+            // The picker's own edges: tiles already keep a gap, and a margin here made a tile just
+            // beside the picker count as over it.
+            tray.pickerLeft,
+            tray.pickerRight,
+        )
     }
 
     private fun askToOpenSettings() {
@@ -572,6 +598,8 @@ class MainActivity : Activity() {
         val isCovered get() = startedCount == 0
         const val CLOSE_BACKGROUND_HOLD_MS = 1500L
         private const val SETTINGS_HOLD_MS = 1500L
+        private const val SURFACE_REFRESH_DELAY_MS = 500L
+        const val EXTRA_GO_HOME = "dev.jeo.pencere.GO_HOME"
         private const val PAN_ZONE_HEIGHT_DP = 200
         private const val PAN_ZONE_WIDTH_RATIO = 0.6f
         private const val PAN_DIRECTION_RATIO = 1.5f
